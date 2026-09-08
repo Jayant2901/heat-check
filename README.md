@@ -58,7 +58,7 @@ A completed historical game can be stepped through the *exact same* engine code 
 |---|---|
 | `GET /api/games/live` | Today's live game IDs (empty list off-season — that's correct, not broken) |
 | `GET /api/games/{game_id}/state` | Non-streaming snapshot of a tracked game |
-| `GET /api/games/{game_id}/stream` | SSE stream of `wp_update` / `anomaly` / `game_end` events |
+| `GET /api/games/{game_id}/stream` | SSE stream of `wp_update` / `anomaly` / `game_end` events; a live game_id starts being tracked on its first connection here -- there's no separate "start tracking" call |
 | `GET /api/replays` | Available historical replay fixtures |
 | `POST /api/replays/{game_id}/start?speed=N` | Start a replay session, streamed via the same `/stream` endpoint |
 | `GET /health` | Health check |
@@ -67,8 +67,8 @@ Full interactive docs at `/docs` once running.
 
 ## Status
 
-- **Done**: health check + live-scoreboard passthrough (M0); resumable historical fetch of game indices and play-by-play across 3 seasons, 3,941 games (M1); the training dataset and win-probability model — HistGradientBoosting, chosen over logistic regression by log-loss, passing the buzzer-convergence gate at 96.3% on strictly held-out data (M2/M3); the run-magnitude baseline table, built from 33,761 real 6+ point runs with log-transformed durations (a right-skew correction found by testing against real games, see `app/anomaly/baseline.py`) (M4); the core engine, run detector, and anomaly z-scoring, unit-tested and validated against real games (M5); the replay simulator, proven end-to-end with the real trained artifacts (M6).
-- **Not started**: live polling wired to the engine (M7); the D3 worm-chart frontend (M8); deploy + SSE verification (M9).
+- **Done**: health check + live-scoreboard passthrough (M0); resumable historical fetch of game indices and play-by-play across 3 seasons, 3,941 games (M1); the training dataset and win-probability model — HistGradientBoosting, chosen over logistic regression by log-loss, passing the buzzer-convergence gate at 96.3% on strictly held-out data (M2/M3); the run-magnitude baseline table, built from 33,761 real 6+ point runs with log-transformed durations (a right-skew correction found by testing against real games, see `app/anomaly/baseline.py`) (M4); the core engine, run detector, and anomaly z-scoring, unit-tested and validated against real games (M5); the replay simulator, proven end-to-end with the real trained artifacts (M6); live polling + SSE wired to the engine, with a live game auto-tracked on its first `/stream` connection and a replay session driven through the identical poller code path — verified against a real running server, not just unit tests (M7).
+- **Not started**: the D3 worm-chart frontend (M8); deploy + SSE verification on Render (M9).
 
 ## Caveats
 
