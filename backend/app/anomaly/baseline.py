@@ -2,23 +2,36 @@
 
 Schema (produced by backend/historical/build_baseline.py, one row per
 (period, time_bucket, magnitude)):
-    period        int    -- 1-4 regulation, 5+ OT
-    time_bucket   int    -- seconds remaining IN that period, floored to a
-                             5-minute window (e.g. 300 means "5:00-9:59 left")
-    magnitude     int    -- run size in points (unanswered points by one team)
-    mean_duration float  -- mean seconds it historically took a run of this
-                             size to happen, at this point in the game
-    std_duration  float
-    n             int    -- sample size backing this bucket
+    period            int    -- 1-4 regulation, 5+ OT
+    time_bucket       int    -- seconds remaining IN that period, floored to
+                                 a 5-minute window (e.g. 300 means "5:00-9:59
+                                 left")
+    magnitude         int    -- run size in points (unanswered points by one team)
+    mean_log_duration float  -- mean of log(seconds) it historically took a
+                                 run of this size to happen, at this point
+    std_log_duration  float
+    n                 int    -- sample size backing this bucket
 
-A run's anomaly z-score is (mean_duration - observed_duration) / std_duration,
-so a HIGHER z means the run happened FASTER than history says runs of that
-size usually do at that point in the game -- i.e. more anomalous. Buckets
-with too few samples fall back to (period, magnitude) pooled across all
-time_buckets, then to (magnitude) pooled globally; the fallback used is
-returned alongside the z-score so callers know how approximate it is.
+Duration is log-transformed before averaging because it's right-skewed: a
+run has a hard physical floor (you can't score N points in less than N
+possessions' worth of seconds) but no real ceiling (the other team can go
+scoreless for a long time), so raw-duration std is inflated by the slow
+tail and a raw z-score's "faster than usual" threshold ends up corresponding
+to a physically impossible duration -- confirmed directly while building
+this (an 8-point run needed to finish in ~3-15s to hit z=2.5 on raw
+durations, which doesn't happen in real basketball). Log-space z-scoring is
+the standard fix for this kind of positive, right-skewed variable.
+
+A run's anomaly z-score is (mean_log_duration - log(observed_duration)) /
+std_log_duration, so a HIGHER z means the run happened FASTER than history
+says runs of that size usually do at that point in the game -- i.e. more
+anomalous. Buckets with too few samples fall back to (period, magnitude)
+pooled across all time_buckets, then to (magnitude) pooled globally; the
+fallback used is returned alongside the z-score so callers know how
+approximate it is.
 """
 
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -48,19 +61,19 @@ def _lookup(baseline: pd.DataFrame, period: int, bucket: int, magnitude: int):
     ]
     if len(exact) and exact["n"].iloc[0] >= MIN_SAMPLES:
         row = exact.iloc[0]
-        return row["mean_duration"], row["std_duration"], "exact"
+        return row["mean_log_duration"], row["std_log_duration"], "exact"
 
     by_period = baseline[(baseline["period"] == period) & (baseline["magnitude"] == magnitude)]
     if len(by_period):
-        agg = by_period[["mean_duration", "std_duration", "n"]].mean()
+        agg = by_period[["mean_log_duration", "std_log_duration", "n"]].mean()
         if agg["n"] >= MIN_SAMPLES:
-            return agg["mean_duration"], agg["std_duration"], "period_pooled"
+            return agg["mean_log_duration"], agg["std_log_duration"], "period_pooled"
 
     by_magnitude = baseline[baseline["magnitude"] == magnitude]
     if len(by_magnitude):
-        agg = by_magnitude[["mean_duration", "std_duration", "n"]].mean()
+        agg = by_magnitude[["mean_log_duration", "std_log_duration", "n"]].mean()
         if agg["n"] > 0:
-            return agg["mean_duration"], agg["std_duration"], "global"
+            return agg["mean_log_duration"], agg["std_log_duration"], "global"
 
     return None
 
@@ -78,7 +91,7 @@ def z_score_run(
     looked_up = _lookup(baseline, period, time_bucket(clock_seconds_remaining), run.points_scored)
     if looked_up is None:
         return None
-    mean_duration, std_duration, bucket_label = looked_up
-    if std_duration <= 0:
+    mean_log_duration, std_log_duration, bucket_label = looked_up
+    if std_log_duration <= 0:
         return None
-    return (mean_duration - duration) / std_duration, bucket_label
+    return (mean_log_duration - math.log(duration)) / std_log_duration, bucket_label

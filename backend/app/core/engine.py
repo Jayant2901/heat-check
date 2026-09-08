@@ -76,11 +76,19 @@ def process_tick(
         )
     )
 
-    if state.current_run is not None and not state.current_run.anomaly_flagged:
+    if (
+        state.current_run is not None
+        and not state.current_run.anomaly_flagged
+        and state.current_run.points_scored >= settings.anomaly_min_magnitude
+    ):
         result = z_score_run(baseline, state.current_run, t, snapshot.game_clock_seconds_remaining, snapshot.period)
         if result is not None:
             z, bucket_label = result
-            if abs(z) >= settings.anomaly_z_threshold:
+            # Only a POSITIVE z is a "heat check" moment (run happened faster
+            # than history says it should -- see anomaly/baseline.py). A
+            # negative z just means the run took longer than usual, which is
+            # unremarkable, not anomalous, and shouldn't be flagged.
+            if z >= settings.anomaly_z_threshold:
                 state.current_run.anomaly_flagged = True
                 duration = t - state.current_run.start_elapsed_seconds
                 message = (

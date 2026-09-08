@@ -67,8 +67,7 @@ Full interactive docs at `/docs` once running.
 
 ## Status
 
-- **Done**: health check + live-scoreboard passthrough (M0); resumable historical fetch of game indices and play-by-play across 5 seasons (M1); the core engine, run detector, and anomaly z-scoring, all unit-tested (M5); the replay simulator, proven end-to-end against a real fetched game (M6).
-- **In progress**: the training dataset and win-probability model, with buzzer-convergence validation (M2/M3); the run-magnitude baseline table (M4) — both waiting on the full historical play-by-play pull to finish.
+- **Done**: health check + live-scoreboard passthrough (M0); resumable historical fetch of game indices and play-by-play across 3 seasons, 3,941 games (M1); the training dataset and win-probability model — HistGradientBoosting, chosen over logistic regression by log-loss, passing the buzzer-convergence gate at 96.3% on strictly held-out data (M2/M3); the run-magnitude baseline table, built from 33,761 real 6+ point runs with log-transformed durations (a right-skew correction found by testing against real games, see `app/anomaly/baseline.py`) (M4); the core engine, run detector, and anomaly z-scoring, unit-tested and validated against real games (M5); the replay simulator, proven end-to-end with the real trained artifacts (M6).
 - **Not started**: live polling wired to the engine (M7); the D3 worm-chart frontend (M8); deploy + SSE verification (M9).
 
 ## Caveats

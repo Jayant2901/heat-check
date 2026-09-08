@@ -1,0 +1,28 @@
+{
+  "chosen_model": "hist_gradient_boosting",
+  "test_season": "2025-26",
+  "train_seasons": [
+    "2023-24",
+    "2024-25"
+  ],
+  "n_train_rows": 1285320,
+  "n_test_rows": 665170,
+  "candidates": {
+    "logistic_regression": {
+      "log_loss": 0.4963344057534457,
+      "brier": 0.16694002509026412,
+      "accuracy": 0.7453929070763865
+    },
+    "hist_gradient_boosting": {
+      "log_loss": 0.4772365932648204,
+      "brier": 0.16212709993257657,
+      "accuracy": 0.7472631056722342
+    }
+  },
+  "feature_columns": [
+    "margin",
+    "time_remaining_seconds",
+    "period"
+  ],
+  "trained_at": "2026-09-08T16:31:19.597984+00:00"
+}

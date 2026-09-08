@@ -40,21 +40,54 @@ def test_run_closes_after_a_long_scoring_gap():
 
 @pytest.fixture
 def baseline_df():
+    import math
+
+    # mean_log_duration = log(90) etc -- a "typical" 8-point run here takes
+    # about 90s (period=4, bucket=300); std chosen in log-space directly
+    # since that's the space z-scoring happens in (see baseline.py).
     return pd.DataFrame(
         [
             # exact bucket for an 8-point run late in Q4 with 10:00-14:59 remaining is missing above,
             # so this exercises the fallback chain explicitly.
-            {"period": 4, "time_bucket": 300, "magnitude": 8, "mean_duration": 90.0, "std_duration": 20.0, "n": 50},
-            {"period": 4, "time_bucket": 0, "magnitude": 8, "mean_duration": 100.0, "std_duration": 25.0, "n": 5},
-            {"period": 1, "magnitude": 8, "mean_duration": 120.0, "std_duration": 30.0, "n": 40, "time_bucket": 600},
-            {"period": 2, "magnitude": 8, "mean_duration": 110.0, "std_duration": 28.0, "n": 40, "time_bucket": 600},
+            {
+                "period": 4,
+                "time_bucket": 300,
+                "magnitude": 8,
+                "mean_log_duration": math.log(90.0),
+                "std_log_duration": 0.3,
+                "n": 50,
+            },
+            {
+                "period": 4,
+                "time_bucket": 0,
+                "magnitude": 8,
+                "mean_log_duration": math.log(100.0),
+                "std_log_duration": 0.3,
+                "n": 5,
+            },
+            {
+                "period": 1,
+                "time_bucket": 600,
+                "magnitude": 8,
+                "mean_log_duration": math.log(120.0),
+                "std_log_duration": 0.3,
+                "n": 40,
+            },
+            {
+                "period": 2,
+                "time_bucket": 600,
+                "magnitude": 8,
+                "mean_log_duration": math.log(110.0),
+                "std_log_duration": 0.3,
+                "n": 40,
+            },
         ]
     )
 
 
 def test_z_score_exact_bucket_hit(baseline_df):
     run = RunState(team="home", start_elapsed_seconds=0, start_score_diff=0, points_scored=8)
-    # duration = 40s, much faster than mean_duration=90s at (period=4, bucket=300)
+    # duration = 40s, much faster than the ~90s a typical run of this size takes
     z, label = z_score_run(baseline_df, run, elapsed_seconds=40, clock_seconds_remaining=310, period=4)
     assert label == "exact"
     assert z > 0  # faster than typical -> more anomalous, positive by convention

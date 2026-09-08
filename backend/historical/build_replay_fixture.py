@@ -13,24 +13,14 @@ stretches, not that it's wrong.
 
 import argparse
 import json
-import re
 from pathlib import Path
 
 import pandas as pd
 
 from historical.fetch_games import RAW_DIR
+from historical.pbp_utils import parse_clock_seconds, parse_score_value
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "replay_fixtures"
-_CLOCK_RE = re.compile(r"PT(?:(\d+)M)?(?:([\d.]+)S)?")
-
-
-def _parse_clock_seconds(iso_clock: str) -> float:
-    match = _CLOCK_RE.match(iso_clock or "")
-    if not match:
-        return 0.0
-    minutes = float(match.group(1) or 0)
-    seconds = float(match.group(2) or 0)
-    return minutes * 60 + seconds
 
 
 def _find_teams(season: str, game_id: str) -> tuple[str, str]:
@@ -39,13 +29,6 @@ def _find_teams(season: str, game_id: str) -> tuple[str, str]:
     home = rows[rows["MATCHUP"].str.contains("vs.", regex=False)]["TEAM_ABBREVIATION"].iloc[0]
     away = rows[rows["MATCHUP"].str.contains("@", regex=False)]["TEAM_ABBREVIATION"].iloc[0]
     return home, away
-
-
-def _score_value(raw) -> int | None:
-    text = str(raw).strip()
-    if text in ("", "None", "nan", "<NA>"):
-        return None
-    return int(text)
 
 
 def build_fixture(season: str, game_id: str) -> dict:
@@ -57,8 +40,8 @@ def build_fixture(season: str, game_id: str) -> dict:
     away_score = 0
     last_index = len(pbp) - 1
     for i, row in enumerate(pbp.itertuples(index=False)):
-        home_val = _score_value(getattr(row, "scoreHome", ""))
-        away_val = _score_value(getattr(row, "scoreAway", ""))
+        home_val = parse_score_value(getattr(row, "scoreHome", ""))
+        away_val = parse_score_value(getattr(row, "scoreAway", ""))
         if home_val is not None:
             home_score = home_val
         if away_val is not None:
@@ -67,7 +50,7 @@ def build_fixture(season: str, game_id: str) -> dict:
             {
                 "game_id": game_id,
                 "period": int(row.period),
-                "game_clock_seconds_remaining": _parse_clock_seconds(row.clock),
+                "game_clock_seconds_remaining": parse_clock_seconds(row.clock),
                 "home_team": home_team,
                 "away_team": away_team,
                 "home_score": home_score,

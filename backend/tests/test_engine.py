@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 import pytest
 
@@ -13,9 +15,19 @@ class FakeModel:
 
 @pytest.fixture
 def baseline_df():
+    # a typical 8-point run here takes 90s; std_log_duration is picked so
+    # that a 30s run (see test_run_builds_and_flags_anomaly) lands at
+    # exactly z=3.0: (log(90)-log(30))/std = log(3)/std = 3.0 -> std = log(3)/3
     return pd.DataFrame(
         [
-            {"period": 4, "time_bucket": 300, "magnitude": 8, "mean_duration": 90.0, "std_duration": 20.0, "n": 50},
+            {
+                "period": 4,
+                "time_bucket": 300,
+                "magnitude": 8,
+                "mean_log_duration": math.log(90.0),
+                "std_log_duration": math.log(3.0) / 3.0,
+                "n": 50,
+            },
         ]
     )
 
