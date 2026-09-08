@@ -1,6 +1,8 @@
-# Live NBA Win-Probability & Anomaly Tracker
+# Heat Check
 
-**Any broadcast can tell you a team is on an 8-0 run. Is that run actually unusual, or does it just feel that way?**
+**Live NBA win-probability tracking, with a statistical heat check on every scoring run.**
+
+Announcers call it a heat check when a player takes a contested shot just to prove he's still hot. This project runs the same check on the whole game: any broadcast can tell you a team is on an 8-0 run, but is that run actually unusual for this point in the game, or does it just feel that way?
 
 This is the real-time counterpart to [Father Time](https://github.com/Jayant2901/father-time-lebron), a batch NBA aging-curve anomaly detector. Both projects share the same statistical instinct — build a baseline distribution from historical data, then z-score a new observation against it — applied to two different kinds of systems:
 
@@ -65,7 +67,9 @@ Full interactive docs at `/docs` once running.
 
 ## Status
 
-Early scaffolding (M0) — health check, live-scoreboard passthrough, and the core data/state models are in place. See the project plan for the full build roadmap: historical dataset → win-probability model (with buzzer-convergence validation) → run-magnitude baseline → replay simulator → live polling + SSE → D3 visualization.
+- **Done**: health check + live-scoreboard passthrough (M0); resumable historical fetch of game indices and play-by-play across 5 seasons (M1); the core engine, run detector, and anomaly z-scoring, all unit-tested (M5); the replay simulator, proven end-to-end against a real fetched game (M6).
+- **In progress**: the training dataset and win-probability model, with buzzer-convergence validation (M2/M3); the run-magnitude baseline table (M4) — both waiting on the full historical play-by-play pull to finish.
+- **Not started**: live polling wired to the engine (M7); the D3 worm-chart frontend (M8); deploy + SSE verification (M9).
 
 ## Caveats
 
