@@ -69,6 +69,8 @@ def process_tick(
             t=t,
             period=snapshot.period,
             clock=snapshot.game_clock_seconds_remaining,
+            home_team=state.home_team,
+            away_team=state.away_team,
             home_score=state.home_score,
             away_score=state.away_score,
             wp_home=wp_home,

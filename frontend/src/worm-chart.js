@@ -33,6 +33,32 @@ export function createWormChart(container) {
   const x = d3.scaleLinear().domain([0, xMax]).range([0, innerWidth]);
   const y = d3.scaleLinear().domain([0, 100]).range([innerHeight, 0]);
 
+  // Split fill, home color above the 50% line and away color below -- the
+  // broadcast-standard "worm chart" look. The gradient is purely
+  // y-position-based (a hard stop exactly at the tie line), so it never
+  // needs to change when the x domain extends into OT.
+  const gradientId = `wp-split-${Math.random().toString(36).slice(2)}`;
+  svg
+    .append("defs")
+    .append("linearGradient")
+    .attr("id", gradientId)
+    .attr("gradientUnits", "userSpaceOnUse")
+    .attr("x1", 0)
+    .attr("y1", 0)
+    .attr("x2", 0)
+    .attr("y2", innerHeight)
+    .selectAll("stop")
+    .data([
+      { offset: "0%", color: "var(--home)" },
+      { offset: "50%", color: "var(--home)" },
+      { offset: "50%", color: "var(--away)" },
+      { offset: "100%", color: "var(--away)" },
+    ])
+    .enter()
+    .append("stop")
+    .attr("offset", (d) => d.offset)
+    .attr("stop-color", (d) => d.color);
+
   const quarterLinesGroup = g.append("g").attr("class", "quarter-lines");
   g.append("line")
     .attr("class", "tie-line")
@@ -46,9 +72,18 @@ export function createWormChart(container) {
 
   const line = d3
     .line()
+    .curve(d3.curveMonotoneX)
     .x((d) => x(d.t))
     .y((d) => y(d.wp_home * 100));
 
+  const area = d3
+    .area()
+    .curve(d3.curveMonotoneX)
+    .x((d) => x(d.t))
+    .y0(y(50))
+    .y1((d) => y(d.wp_home * 100));
+
+  const areaPath = g.append("path").attr("class", "wp-area").attr("fill", `url(#${gradientId})`);
   const path = g.append("path").attr("class", "wp-line-home");
   const latestPoint = g.append("circle").attr("class", "latest-point").attr("r", 4).style("display", "none");
   const anomalyGroup = g.append("g").attr("class", "anomalies");
@@ -93,6 +128,7 @@ export function createWormChart(container) {
       xMax = point.t + OT_SECONDS / 2;
       redrawAxesAndGridlines();
     }
+    areaPath.datum(points).attr("d", area);
     path.datum(points).attr("d", line);
     latestPoint
       .style("display", null)
@@ -140,6 +176,7 @@ export function createWormChart(container) {
   function reset() {
     points.length = 0;
     xMax = REGULATION_SECONDS;
+    areaPath.datum([]).attr("d", area);
     path.datum([]).attr("d", line);
     latestPoint.style("display", "none");
     anomalyGroup.selectAll("*").remove();

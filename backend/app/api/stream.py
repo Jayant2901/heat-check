@@ -31,13 +31,18 @@ def _backlog_events(state):
     # redraw the worm chart's historical trail, not the extra display
     # metadata a live front-edge tick carries. wp_away is trivially 1-wp_home
     # if a client wants it. Confirmed by hand against a real replay stream
-    # that this asymmetry is intentional, not a missing-field bug.
+    # that this asymmetry is intentional, not a missing-field bug. Team
+    # abbreviations ARE included, though -- they're constant for the whole
+    # game (read once off `state`, not stored per-point), and a late-joining
+    # viewer needs them immediately to render the matchup header.
     for point in state.score_history:
         yield {
             "event": "wp_update",
             "data": json.dumps(
                 {
                     "t": point.elapsed_seconds,
+                    "home_team": state.home_team,
+                    "away_team": state.away_team,
                     "home_score": point.home_score,
                     "away_score": point.away_score,
                     "wp_home": point.wp_home,

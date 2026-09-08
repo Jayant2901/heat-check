@@ -8,6 +8,8 @@ class WPUpdateEvent:
     t: float
     period: int
     clock: float
+    home_team: str
+    away_team: str
     home_score: int
     away_score: int
     wp_home: float

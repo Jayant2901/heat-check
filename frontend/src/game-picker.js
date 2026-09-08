@@ -9,12 +9,14 @@ async function fetchJson(url, options) {
 }
 
 export async function renderGamePicker(container, onWatch) {
-  container.innerHTML = "";
+  container.innerHTML = '<p class="empty-state">Loading games…</p>';
 
   const [liveData, replayData] = await Promise.all([
     fetchJson("/api/games/live").catch(() => ({ game_ids: [] })),
     fetchJson("/api/replays").catch(() => ({ fixtures: [] })),
   ]);
+
+  container.innerHTML = "";
 
   const liveSection = document.createElement("div");
   liveSection.innerHTML = "<h2>Live games</h2>";
@@ -26,10 +28,13 @@ export async function renderGamePicker(container, onWatch) {
     for (const gameId of liveData.game_ids) {
       const li = document.createElement("li");
       li.innerHTML = `<span>${gameId}</span>`;
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
       const button = document.createElement("button");
       button.textContent = "Watch live";
       button.onclick = () => onWatch(`/api/games/${gameId}/stream`, gameId);
-      li.appendChild(button);
+      actions.appendChild(button);
+      li.appendChild(actions);
       ul.appendChild(li);
     }
     liveSection.appendChild(ul);
@@ -48,6 +53,9 @@ export async function renderGamePicker(container, onWatch) {
       label.textContent = `${fixture.label} (${fixture.away_team} ${fixture.final_away_score} - ${fixture.final_home_score} ${fixture.home_team})`;
       li.appendChild(label);
 
+      const actions = document.createElement("div");
+      actions.className = "row-actions";
+
       const speedSelect = document.createElement("select");
       for (const speed of [5, 10, 30, 100]) {
         const opt = document.createElement("option");
@@ -56,18 +64,26 @@ export async function renderGamePicker(container, onWatch) {
         if (speed === 10) opt.selected = true;
         speedSelect.appendChild(opt);
       }
-      li.appendChild(speedSelect);
+      actions.appendChild(speedSelect);
 
       const button = document.createElement("button");
       button.textContent = "Watch replay";
       button.onclick = async () => {
-        const { stream_url, session_key } = await fetchJson(
-          `/api/replays/${fixture.game_id}/start?speed=${speedSelect.value}`,
-          { method: "POST" }
-        );
-        onWatch(stream_url, session_key);
+        button.disabled = true;
+        button.textContent = "Starting…";
+        try {
+          const { stream_url, session_key } = await fetchJson(
+            `/api/replays/${fixture.game_id}/start?speed=${speedSelect.value}`,
+            { method: "POST" }
+          );
+          onWatch(stream_url, session_key, { awayTeam: fixture.away_team, homeTeam: fixture.home_team });
+        } finally {
+          button.disabled = false;
+          button.textContent = "Watch replay";
+        }
       };
-      li.appendChild(button);
+      actions.appendChild(button);
+      li.appendChild(actions);
       ul.appendChild(li);
     }
     replaySection.appendChild(ul);
