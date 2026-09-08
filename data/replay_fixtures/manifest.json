@@ -8,6 +8,15 @@
       "final_home_score": 126,
       "final_away_score": 117,
       "label": "smoke test"
+    },
+    {
+      "game_id": "0022300186",
+      "season": "2023-24",
+      "home_team": "GSW",
+      "away_team": "MIN",
+      "final_home_score": 110,
+      "final_away_score": 116,
+      "label": "GSW @ MIN heat check"
     }
   ]
 }

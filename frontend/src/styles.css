@@ -1,4 +1,217 @@
+:root {
+  --bg: #14100e;
+  --panel: #1e1815;
+  --panel-border: #34281f;
+  --text: #f3ece6;
+  --text-dim: #b8a99b;
+  --heat: #ff6b35;
+  --heat-dim: #b8461f;
+  --home: #4fb0ff;
+  --away: #ff6b35;
+  --good: #3ecf8e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-  font-family: system-ui, sans-serif;
-  margin: 2rem;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 2rem;
+  max-width: 1000px;
+  margin-inline: auto;
+}
+
+header {
+  margin-bottom: 1.5rem;
+}
+
+header h1 {
+  font-size: 1.6rem;
+  margin: 0 0 0.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+header p {
+  color: var(--text-dim);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.panel h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin: 0 0 0.75rem;
+}
+
+#game-picker ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#game-picker li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #171310;
+  border-radius: 8px;
+  border: 1px solid var(--panel-border);
+}
+
+.empty-state {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+button, select {
+  background: var(--heat);
+  color: #1a0f08;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4rem 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+button:hover {
+  background: #ff8455;
+}
+
+select {
+  background: #2a2019;
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  font-weight: 400;
+}
+
+#status-line {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin-bottom: 0.75rem;
+}
+
+#status-line.connected {
+  color: var(--good);
+}
+
+.score-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+
+.score-row .team {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.score-row .score {
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+
+#worm-chart svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.wp-line-home {
+  fill: none;
+  stroke: var(--home);
+  stroke-width: 2.5;
+}
+
+.tie-line {
+  stroke: var(--panel-border);
+  stroke-dasharray: 4 4;
+}
+
+.quarter-line {
+  stroke: var(--panel-border);
+  stroke-width: 1;
+}
+
+.axis text {
+  fill: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.axis path,
+.axis line {
+  stroke: var(--panel-border);
+}
+
+.latest-point {
+  fill: var(--home);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+
+.anomaly-line {
+  stroke: var(--heat);
+  stroke-dasharray: 3 3;
+  stroke-width: 1.5;
+}
+
+.anomaly-marker {
+  fill: var(--heat);
+  stroke: #1a0f08;
+  stroke-width: 1;
+  cursor: pointer;
+}
+
+.anomaly-tooltip {
+  position: absolute;
+  background: #1a0f08;
+  border: 1px solid var(--heat);
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  max-width: 240px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+#anomaly-feed ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#anomaly-feed li {
+  padding: 0.5rem 0.75rem;
+  background: #2a1710;
+  border-left: 3px solid var(--heat);
+  border-radius: 4px;
+  font-size: 0.85rem;
 }

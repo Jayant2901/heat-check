@@ -2,13 +2,30 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Live NBA Win-Probability & Anomaly Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Heat Check</title>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <h1>Live NBA Win-Probability &amp; Anomaly Tracker</h1>
-  <p>Frontend not built yet -- see project plan, milestone M8 (D3 worm chart).</p>
-  <div id="game-picker"></div>
-  <div id="worm-chart"></div>
+  <header>
+    <h1>🔥 Heat Check</h1>
+    <p>Live NBA win-probability tracking, with a statistical heat check on every scoring run.</p>
+  </header>
+
+  <div id="game-picker" class="panel"></div>
+
+  <div class="panel">
+    <div id="status-line">Not connected -- pick a live game or replay above.</div>
+    <div id="score-row" class="score-row"></div>
+    <div id="worm-chart"></div>
+  </div>
+
+  <div id="anomaly-feed" class="panel">
+    <h2>Heat checks</h2>
+    <p class="empty-state">No heat checks yet.</p>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <script type="module" src="/src/main.js"></script>
 </body>
 </html>
