@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: nba-win-probability-tracker
+    name: heat-check
     runtime: docker
     dockerfilePath: ./Dockerfile
     plan: free
