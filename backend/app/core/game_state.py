@@ -15,6 +15,8 @@ class RunState:
     start_elapsed_seconds: float
     start_score_diff: int
     points_scored: int = 0
+    last_scored_elapsed: float = 0.0
+    anomaly_flagged: bool = False
 
 
 @dataclass

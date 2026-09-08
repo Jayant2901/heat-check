@@ -1,0 +1,13 @@
+{
+  "fixtures": [
+    {
+      "game_id": "0022200001",
+      "season": "2022-23",
+      "home_team": "BOS",
+      "away_team": "PHI",
+      "final_home_score": 126,
+      "final_away_score": 117,
+      "label": "smoke test"
+    }
+  ]
+}
