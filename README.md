@@ -4,21 +4,13 @@
 
 Announcers call it a heat check when a player takes a contested shot just to prove he's still hot. This project runs the same check on the whole game: any broadcast can tell you a team is on an 8-0 run, but is that run actually unusual for this point in the game, or does it just feel that way?
 
-This is the real-time counterpart to [Father Time](https://github.com/Jayant2901/father-time-lebron), a batch NBA aging-curve anomaly detector. Both projects share the same statistical instinct — build a baseline distribution from historical data, then z-score a new observation against it — applied to two different kinds of systems:
-
-| | Father Time | This project |
-|---|---|---|
-| Data | Full career histories, pulled once | A single game, updating every ~12 seconds |
-| Baseline | Age-cohort percentile distributions | Run-magnitude vs. game-clock-position distributions |
-| Output | A static report, regenerated occasionally | A live-updating win-probability curve with anomalies flagged in real time |
-| Engineering problem | ETL, joins across messy sources, statistical rigor | State management, streaming updates, replay/live code-path parity |
-
 ## Why this exists
 
-A portfolio project meant to demonstrate the same statistical skill applied under a very different engineering constraint: Father Time can take its time; this can't. Specifically:
-- **Real-time system design** — server-side per-game state, Server-Sent Events, a poll→recompute→flag→push pipeline that has to run identically whether it's driven by a live game or a replay.
-- **The same anomaly-detection instinct as Father Time**, applied to a moving target instead of a fixed dataset.
-- **Honest engineering about a hard constraint**: the NBA off-season means there's no live game to test against most of the year, so the whole system is designed to be built, validated, and demoed against historical replay first — see [Replay mode](#replay-mode) below.
+A real-time system built around one statistical idea: pool a baseline distribution from historical data, then z-score a new observation against it. Applied here to two things at once, live, as a game unfolds:
+- **Win probability** — a model trained on historical score-margin/time-remaining/quarter data, recomputed every ~12 seconds as the game is polled.
+- **Anomaly detection on scoring runs** — is this run's speed actually a statistical outlier for this point in the game, or does it just feel that way?
+
+The real engineering problem here is server-side per-game state, Server-Sent Events, and a poll→recompute→flag→push pipeline that has to run **identically** whether it's driven by a live game or a replay — which matters because of a hard constraint: the NBA off-season means there's no live game to test against most of the year, so the whole system is designed to be built, validated, and demoed against historical replay first — see [Replay mode](#replay-mode) below.
 
 ## Quickstart
 
@@ -41,7 +33,7 @@ pytest
 ## How it works
 
 ### Data source
-[`nba_api`](https://github.com/swar/nba_api) (the same library Father Time uses for historical stats), two ways:
+[`nba_api`](https://github.com/swar/nba_api), two ways:
 - **Live**: `nba_api.live.nba.endpoints.boxscore`, backed by NBA.com's CDN (`cdn.nba.com/static/json/liveData/boxscore/...`), polled every ~12s for score, period, and game clock. This is a CDN-served JSON snapshot, not a push feed — polling is the correct approach here, not a compromise.
 - **Historical**: `nba_api`'s stats endpoints (`leaguegamefinder`, `playbyplayv2`/`v3`, `boxscoretraditionalv2`), pulled once per season to train the win-probability model and build the anomaly baseline.
 
