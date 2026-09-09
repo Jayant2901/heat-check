@@ -42,6 +42,14 @@ async def start_replay(game_id: str, speed: float = 10.0):
     if speed <= 0:
         raise HTTPException(status_code=422, detail="speed must be positive")
 
+    active_replays = [k for k in poller_manager.active_keys() if k.startswith("replay:")]
+    if len(active_replays) >= settings.max_concurrent_replay_sessions:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many concurrent replay sessions (max {settings.max_concurrent_replay_sessions}); "
+            "try again once one finishes",
+        )
+
     session_id = uuid.uuid4().hex[:8]
     key = f"replay:{game_id}:{session_id}"
     poller_manager.start(

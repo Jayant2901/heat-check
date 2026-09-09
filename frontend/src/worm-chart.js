@@ -123,6 +123,18 @@ export function createWormChart(container) {
   redrawAxesAndGridlines();
 
   function addPoint(point) {
+    // A dropped SSE connection auto-reconnects (EventSource's default
+    // behavior) to the same stream URL, which re-runs the backend's backlog
+    // replay from t=0 -- without this guard, every reconnect redrew the
+    // whole line from scratch, appended after what was already there, and
+    // made the worm chart jump backward. Only reject strictly-earlier
+    // points: two distinct real events can legitimately share the same t
+    // (e.g. back-to-back free throws with the clock frozen), so equal-t
+    // points still get plotted.
+    const lastPoint = points[points.length - 1];
+    if (lastPoint && point.t < lastPoint.t) {
+      return;
+    }
     points.push(point);
     if (point.t > xMax) {
       xMax = point.t + OT_SECONDS / 2;

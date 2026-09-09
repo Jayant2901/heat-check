@@ -16,7 +16,14 @@ export function connectStream(streamUrl, handlers) {
   }
 
   source.onerror = () => {
-    if (handlers.onerror) handlers.onerror();
+    if (!handlers.onerror) return;
+    // readyState stays CONNECTING while the browser auto-retries (its
+    // default behavior on a dropped connection, e.g. Render's free tier
+    // idling/timing out an SSE connection) -- that's a transient blip, not
+    // a dead stream, so callers can show "reconnecting" instead of
+    // something that reads as broken. CLOSED means it's given up for good.
+    const reconnecting = source.readyState === EventSource.CONNECTING;
+    handlers.onerror({ reconnecting });
   };
 
   return source;

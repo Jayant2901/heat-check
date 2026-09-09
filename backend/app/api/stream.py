@@ -66,6 +66,15 @@ def _backlog_events(state):
         }
 
 
+def _already_in_backlog(event, last_backlog_t: float) -> bool:
+    """True if `event` falls at or before the last timestamp the backlog
+    snapshot already covered -- see the subscribe-before-backlog comment in
+    stream_game(). Events with no `t` (game_end, degraded) are never
+    considered already-delivered."""
+    event_t = getattr(event, "t", None)
+    return event_t is not None and event_t <= last_backlog_t
+
+
 def _ensure_live_tracking(game_id: str) -> None:
     active_live = [k for k in poller_manager.active_keys() if not k.startswith("replay:")]
     if active_live and game_id not in active_live:
@@ -99,11 +108,24 @@ async def stream_game(game_id: str, request: Request):
         state = game_state_store.get_or_create(game_id)
 
     async def event_generator():
-        for event in _backlog_events(state):
-            yield event
-
+        # Subscribe BEFORE reading the backlog, not after -- the poller task
+        # runs on its own asyncio task and can publish between "read the
+        # backlog" and "start listening for new events" on any await point,
+        # which used to mean a tick published in that window was silently
+        # dropped for this connection (never in the backlog snapshot, never
+        # seen by a queue we hadn't subscribed to yet). Subscribing first
+        # means that same tick now arrives twice instead -- once already
+        # captured by the backlog snapshot below, once off the queue -- so
+        # the queue-drain loop skips anything at or before the last
+        # timestamp the backlog already covered. Re-delivering a duplicate
+        # is a much safer failure mode than silently losing an event.
         queue = broadcaster.subscribe(game_id)
         try:
+            last_backlog_t = state.score_history[-1].elapsed_seconds if state.score_history else -1
+
+            for event in _backlog_events(state):
+                yield event
+
             while True:
                 if await request.is_disconnected():
                     break
@@ -111,6 +133,8 @@ async def stream_game(game_id: str, request: Request):
                     event = await asyncio.wait_for(queue.get(), timeout=settings.sse_heartbeat_seconds)
                 except asyncio.TimeoutError:
                     yield {"event": "heartbeat", "data": ""}
+                    continue
+                if _already_in_backlog(event, last_backlog_t):
                     continue
                 payload = to_sse_payload(event)
                 yield {"event": payload.pop("type"), "data": json.dumps(payload)}

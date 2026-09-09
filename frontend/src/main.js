@@ -94,8 +94,12 @@ function watch(streamUrl, label, meta = {}) {
       view.connected = false;
       renderMatchup(view);
     },
-    onerror: () => {
-      view.statusText = "Connection lost";
+    onerror: ({ reconnecting }) => {
+      // The browser retries automatically on a drop (e.g. a hosting
+      // platform's free tier idling out a long-lived SSE connection) --
+      // show that as recoverable, not as a dead stream, and let it recover
+      // on its own; only readyState CLOSED means it's truly given up.
+      view.statusText = reconnecting ? "Reconnecting…" : "Connection lost";
       view.connected = false;
       renderMatchup(view);
     },

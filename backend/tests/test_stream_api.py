@@ -2,7 +2,8 @@ import json
 
 from fastapi.testclient import TestClient
 
-from app.api.stream import _backlog_events
+from app.api.stream import _already_in_backlog, _backlog_events
+from app.core.events import DegradedEvent, GameEndEvent, WPUpdateEvent
 from app.core.game_state import AnomalyEvent, GameState, ScoreHistoryPoint
 from app.main import app
 from app.polling.poller import poller_manager
@@ -29,6 +30,32 @@ def test_backlog_events_replays_score_history_then_anomalies():
     assert [e["event"] for e in events] == ["wp_update", "anomaly"]
     assert json.loads(events[0]["data"])["home_score"] == 2
     assert json.loads(events[1]["data"])["z_score"] == 3.0
+
+
+def _wp_event(t):
+    return WPUpdateEvent(
+        type="wp_update",
+        t=t,
+        period=1,
+        clock=600,
+        home_team="HOM",
+        away_team="AWY",
+        home_score=2,
+        away_score=0,
+        wp_home=0.55,
+        wp_away=0.45,
+    )
+
+
+def test_already_in_backlog_drops_events_at_or_before_the_cutoff():
+    assert _already_in_backlog(_wp_event(5), last_backlog_t=10) is True
+    assert _already_in_backlog(_wp_event(10), last_backlog_t=10) is True  # exactly at the cutoff -> covered
+    assert _already_in_backlog(_wp_event(15), last_backlog_t=10) is False
+
+
+def test_already_in_backlog_never_drops_events_without_a_t():
+    assert _already_in_backlog(GameEndEvent(type="game_end", final_home_score=1, final_away_score=0, winner="HOM"), 999) is False
+    assert _already_in_backlog(DegradedEvent(type="degraded", reason="test"), 999) is False
 
 
 def test_second_live_game_conflicts_with_an_already_tracked_one():

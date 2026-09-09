@@ -61,6 +61,9 @@ async def test_poller_publishes_events_and_stops_at_game_end(tmp_path):
                 break
             await asyncio.sleep(0.01)
         assert not manager.is_active("T1")
+        # ...and so does its GameState -- without this, every finished game
+        # leaked its full score_history/anomalies forever.
+        assert game_state_store.get("T1") is None
     finally:
         broadcaster.unsubscribe("T1", queue)
         game_state_store.remove("T1")

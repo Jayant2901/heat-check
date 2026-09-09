@@ -96,7 +96,17 @@ class PollerManager:
                     break
                 await asyncio.sleep(interval_seconds)
         finally:
+            # Nothing else removes a finished game/session from the store --
+            # without this, every game_end (live or replay) leaked its full
+            # score_history/anomalies forever, unbounded, for the life of
+            # the process. Any SSE connection already open keeps working
+            # fine (event_generator holds its own reference to `state`);
+            # the only effect is that a *new* connection to this same key
+            # after it's gone either restarts a fresh live poll (harmless,
+            # since a truly-finished game just re-completes) or 404s for a
+            # finished replay session, which is fine -- start a new one.
             self._tasks.pop(key, None)
+            game_state_store.remove(key)
 
 
 poller_manager = PollerManager()

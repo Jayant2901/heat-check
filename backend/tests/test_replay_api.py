@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.core.game_state import game_state_store
 from app.main import app
 from app.polling.poller import poller_manager
@@ -39,3 +40,18 @@ def test_start_replay_creates_a_streamable_session():
 
     poller_manager.stop(body["session_key"])
     game_state_store.remove(body["session_key"])
+
+
+def test_start_replay_rejects_once_the_concurrent_session_cap_is_hit():
+    # Fill up to the cap without spinning up real tasks -- the check only
+    # cares about active_keys() dict membership, same trick used for the
+    # one-live-game conflict test in test_stream_api.py.
+    fake_keys = [f"replay:fake:{i}" for i in range(settings.max_concurrent_replay_sessions)]
+    for key in fake_keys:
+        poller_manager._tasks[key] = object()
+    try:
+        resp = client.post("/api/replays/0022200001/start", params={"speed": 1000})
+        assert resp.status_code == 429
+    finally:
+        for key in fake_keys:
+            del poller_manager._tasks[key]

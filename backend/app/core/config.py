@@ -18,6 +18,12 @@ class Settings:
     # exchange got flagged as a multi-sigma outlier.
     anomaly_min_magnitude: int = int(os.getenv("ANOMALY_MIN_MAGNITUDE", "6"))
     sse_heartbeat_seconds: float = float(os.getenv("SSE_HEARTBEAT_SECONDS", "15"))
+    # Each replay session is an unauthenticated, free-to-spam way to spin up
+    # a PollerManager task + GameState that lives until the replay finishes
+    # (see poller.py's cleanup) -- without a cap, repeatedly hitting
+    # POST /api/replays/{id}/start is a cheap resource-exhaustion vector on
+    # a public demo URL.
+    max_concurrent_replay_sessions: int = int(os.getenv("MAX_CONCURRENT_REPLAY_SESSIONS", "10"))
     win_prob_model_path: Path = ARTIFACTS_DIR / "win_prob_model_v1.joblib"
     run_baseline_path: Path = ARTIFACTS_DIR / "run_baseline_v1.parquet"
 
