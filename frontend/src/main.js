@@ -1,7 +1,6 @@
 import { renderGamePicker } from "./game-picker.js";
 import { connectStream } from "./sse-client.js";
 import { createWormChart } from "./worm-chart.js";
-import { mountDunkHero } from "./hero-dunk.js";
 
 const lobbyView = document.getElementById("lobby-view");
 const gameView = document.getElementById("game-view");
@@ -115,5 +114,4 @@ document.querySelectorAll("[data-nav]").forEach((node) => node.addEventListener(
 }));
 document.getElementById("back-to-games").addEventListener("click", showLobby);
 initialiseReveal(); initialiseCounters();
-mountDunkHero(document.getElementById("dunk-canvas"), document.querySelector(".hero-scroll"));
 renderGamePicker(pickerContainer, watch);
