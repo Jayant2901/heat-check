@@ -17,6 +17,15 @@
       "final_home_score": 110,
       "final_away_score": 116,
       "label": "GSW @ MIN heat check"
+    },
+    {
+      "game_id": "0022301034",
+      "season": "2023-24",
+      "home_team": "ATL",
+      "away_team": "BOS",
+      "final_home_score": 120,
+      "final_away_score": 118,
+      "label": "30-point comeback"
     }
   ]
 }
