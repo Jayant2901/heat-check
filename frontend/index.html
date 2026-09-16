@@ -24,37 +24,49 @@
         <div class="hero-copy">
           <p class="eyebrow"><span class="eyebrow-bar" aria-hidden="true"></span>Live NBA win probability</p>
           <h1 id="hero-title">Every run has a <span>temperature.</span></h1>
-          <p class="hero-body">Any broadcast can tell you a team is on an 8–0 run. Heat Check z-scores that run against three seasons of real ones and tells you whether it is actually unusual.</p>
+          <p class="hero-body">Watch any NBA game, live or replayed, and see each team's chance of winning update in real time — with unusual scoring streaks called out automatically.</p>
           <div class="hero-actions">
             <button class="btn btn-primary" type="button" data-nav="replays">Watch a replay <span aria-hidden="true">→</span></button>
-            <button class="btn btn-ghost" type="button" data-nav="method">Read the method</button>
+            <button class="btn btn-ghost" type="button" data-nav="method">How does it work?</button>
           </div>
         </div>
       </div>
     </section>
 
+    <section class="explainer page-grid" aria-labelledby="explainer-title">
+      <div class="explainer-card card elev-md">
+        <p class="card-kicker">What is Heat Check?</p>
+        <h2 id="explainer-title">A live scoreboard that also tells you who's likely to win — and when a team is playing better than they realistically should be.</h2>
+        <div class="explainer-grid">
+          <article><span>1</span><p>As a game happens, Heat Check follows along in real time, just like a scoreboard — score, quarter, and clock.</p></article>
+          <article><span>2</span><p>After every basket, it recalculates each team's odds of winning based on the score, time left, and quarter.</p></article>
+          <article><span>3</span><p>When a team goes on a scoring streak, it compares that streak to thousands of real ones from past games — if it's genuinely rare, it flags it as a "heat check."</p></article>
+        </div>
+      </div>
+    </section>
+
     <section class="marquee" aria-label="Heat Check capabilities">
-      <div class="marquee-track"><span>Heat check · 3.1σ home run flagged · Win probability recomputed · Replay any classic game · Heat check · 2.7σ in 13 seconds ·</span><span aria-hidden="true">Heat check · 3.1σ home run flagged · Win probability recomputed · Replay any classic game · Heat check · 2.7σ in 13 seconds ·</span></div>
+      <div class="marquee-track"><span>Heat check · Unusual run flagged automatically · Win probability updates live · Replay any classic game · Heat check · Flagged in 13 seconds ·</span><span aria-hidden="true">Heat check · Unusual run flagged automatically · Win probability updates live · Replay any classic game · Heat check · Flagged in 13 seconds ·</span></div>
     </section>
 
     <section class="section page-grid" data-reveal>
       <p class="section-index"><span>01</span> Evidence</p>
       <h2>What it was built on.</h2>
       <div class="metrics-grid" aria-label="Project evidence">
-        <article class="metric"><strong data-count="3941" data-suffix="">0</strong><span>Games of play-by-play</span></article>
-        <article class="metric"><strong data-count="33761" data-suffix="">0</strong><span>Real 6+ point runs pooled</span></article>
-        <article class="metric"><strong data-count="96" data-suffix="%">0</strong><span>Buzzer convergence, held out</span></article>
-        <article class="metric"><strong data-count="12" data-suffix="s">0</strong><span>Poll to push, per tick</span></article>
+        <article class="metric"><strong data-count="3941" data-suffix="">0</strong><span>Real games analyzed</span></article>
+        <article class="metric"><strong data-count="33761" data-suffix="">0</strong><span>Real scoring streaks studied</span></article>
+        <article class="metric"><strong data-count="96" data-suffix="%">0</strong><span>Accuracy predicting the final winner</span></article>
+        <article class="metric"><strong data-count="12" data-suffix="s">0</strong><span>Seconds from live update to your screen</span></article>
       </div>
     </section>
 
     <section id="method" class="section page-grid method-section" data-reveal>
       <p class="section-index"><span>02</span> Method</p>
-      <h2>The pipeline.</h2>
+      <h2>How it works.</h2>
       <div class="pipeline">
-        <article><span>01</span><h3>Poll</h3><p>The live boxscore is a CDN JSON snapshot, not a push feed — score, period and clock every twelve seconds. Polling is the correct approach here, not a compromise.</p></article>
-        <article><span>02</span><h3>Recompute</h3><p>Win probability comes from a model trained only on the fields available live — margin, time remaining, quarter — so training and inference can never drift apart.</p></article>
-        <article><span>03</span><h3>Flag</h3><p>Each run is z-scored against real runs at the same point in the game. Past two sigma it stops being momentum and starts being a heat check.</p></article>
+        <article><span>01</span><h3>Watch</h3><p>Every twelve seconds, Heat Check checks the score, quarter and clock — the same info you'd see on any scoreboard.</p></article>
+        <article><span>02</span><h3>Predict</h3><p>That info is fed into a model that recalculates each team's odds of winning, updated after every basket.</p></article>
+        <article><span>03</span><h3>Flag</h3><p>If a scoring streak is rare compared to thousands of real streaks from past games, it stops being ordinary momentum and gets flagged as a heat check.</p></article>
       </div>
     </section>
 
@@ -65,7 +77,7 @@
     </section>
 
     <section class="poster" data-reveal>
-      <div class="page-grid"><p>Momentum is a feeling. <span>Sigma is a number.</span></p></div>
+      <div class="page-grid"><p>Momentum is a feeling. <span>We turn it into a number.</span></p></div>
     </section>
   </main>
 
