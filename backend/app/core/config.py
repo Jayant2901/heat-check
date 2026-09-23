@@ -11,7 +11,12 @@ REPLAY_FIXTURES_DIR = DATA_DIR / "replay_fixtures"
 class Settings:
     poll_interval_seconds: float = float(os.getenv("POLL_INTERVAL_SECONDS", "12"))
     poll_backoff_max_seconds: float = float(os.getenv("POLL_BACKOFF_MAX_SECONDS", "60"))
-    anomaly_z_threshold: float = float(os.getenv("ANOMALY_Z_THRESHOLD", "2.5"))
+    # 1.5 was picked by checking the top run z-scores across all three
+    # curated replay fixtures: the two ordinary games top out at 0.45-0.58,
+    # while the "30-point comeback" game has three runs at 1.5-1.55 -- so
+    # 1.5 is the highest threshold that still lets the comeback game's heat
+    # checks fire without flagging anything in a normal game.
+    anomaly_z_threshold: float = float(os.getenv("ANOMALY_Z_THRESHOLD", "1.5"))
     # Below this, a "run" is really just a pair of free throws (clock frozen,
     # near-zero elapsed time), not a basketball "run" in any meaningful
     # sense -- confirmed directly: without this floor, ~every 2-3 point
