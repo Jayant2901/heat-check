@@ -24,6 +24,20 @@ from app.model.win_prob import WinProbModel, predict_win_prob
 _run_detector = RunDetector()
 
 
+def _describe_rarity(z: float) -> str:
+    """Plain-language rarity phrase for a z-score, for the layman-facing message.
+
+    Thresholds are qualitative, not derived from an exact percentile lookup,
+    since the baseline table only gives us mean/std per bucket, not a full
+    distribution to invert.
+    """
+    if z >= 3.5:
+        return "one of the most extreme scoring streaks you'll see"
+    if z >= 3.0:
+        return "an extremely rare scoring streak"
+    return "a genuinely rare scoring streak"
+
+
 def process_tick(
     state: GameState,
     snapshot: GameSnapshot,
@@ -94,8 +108,8 @@ def process_tick(
                 state.current_run.anomaly_flagged = True
                 duration = t - state.current_run.start_elapsed_seconds
                 message = (
-                    f"{state.current_run.team} {state.current_run.points_scored}-0 run in "
-                    f"{duration:.0f}s is a {z:.1f}-sigma outlier for this point in the game"
+                    f"{state.current_run.team} just scored {state.current_run.points_scored} unanswered "
+                    f"points in {duration:.0f} seconds — {_describe_rarity(z)} for this point in the game."
                 )
                 state.anomalies.append(
                     AnomalyEvent(

@@ -28,13 +28,16 @@ function shotClockProgress(clockSeconds) {
 }
 
 function renderMatchup(view) {
-  const margin = (view.homeScore ?? 0) - (view.awayScore ?? 0);
-  const momentum = Math.min(1, Math.abs(margin) / 12) * 50;
-  const side = margin >= 0 ? "home" : "away";
+  const wpHome = view.wpHome ?? 0.5;
+  const amount = Math.abs(wpHome - 0.5) * 200;
+  const side = wpHome >= 0.5 ? "home" : "away";
+  const leadTeam = wpHome >= 0.5 ? (view.homeTeam || "the home team") : (view.awayTeam || "the away team");
+  const leadPct = Math.round(Math.max(wpHome, 1 - wpHome) * 100);
+  const readout = view.wpHome == null ? "Win chance appears once the game starts" : `${leadTeam} ${leadPct}% likely to win`;
   const ring = `${shotClockProgress(view.clockSeconds) * 360}deg`;
   matchupHeader.innerHTML = `
     <div class="score-team score-away"><span class="team-badge neutral">${view.awayTeam || "AWY"}</span><div><p class="team-label">Away</p><strong>${view.awayTeam || "AWAY"}</strong></div><b>${view.awayScore ?? "–"}</b></div>
-    <div class="score-center"><span class="tag ${view.connected ? "tag-accent" : "tag-neutral"}"><i class="status-square"></i>${view.statusText}</span><div class="clock-row"><span class="clock-ring" style="--ring:${ring}"></span><code>${view.clockText || "TIP-OFF"}</code></div><div class="momentum"><div><span>AWAY</span><em>MOMENTUM</em><span>HOME</span></div><div class="momentum-track ${side}"><i style="--amount:${momentum}%"></i></div></div></div>
+    <div class="score-center"><span class="tag ${view.connected ? "tag-accent" : "tag-neutral"}"><i class="status-square"></i>${view.statusText}</span><div class="clock-row"><span class="clock-ring" style="--ring:${ring}"></span><code>${view.clockText || "TIP-OFF"}</code></div><div class="momentum"><div><span>AWAY</span><em>WIN CHANCE</em><span>HOME</span></div><div class="momentum-track ${side}"><i style="--amount:${amount}%"></i></div></div><p class="wp-readout">${readout}</p></div>
     <div class="score-team score-home"><b>${view.homeScore ?? "–"}</b><div><p class="team-label">Home</p><strong>${view.homeTeam || "HOME"}</strong></div><span class="team-badge accent">${view.homeTeam || "HME"}</span></div>`;
   chartLegend.innerHTML = `<span class="legend-home"><i></i>${view.homeTeam || "HOME"}</span><span class="legend-away"><i></i>${view.awayTeam || "AWAY"}</span>`;
 }
@@ -75,11 +78,11 @@ function watch(streamUrl, label, meta = {}) {
   showGameView();
   chart.reset();
   anomalyFeed.innerHTML = `<div class="feed-header"><div><p class="card-kicker">Run monitor</p><h2 id="heat-title">Heat checks</h2></div><span class="tag tag-outline">Latest first</span></div><p class="empty-state">No heat checks yet.</p>`;
-  const view = { awayTeam: meta.awayTeam, homeTeam: meta.homeTeam, awayScore: null, homeScore: null, clockText: "", clockSeconds: null, statusText: "Connecting", connected: false };
+  const view = { awayTeam: meta.awayTeam, homeTeam: meta.homeTeam, awayScore: null, homeScore: null, clockText: "", clockSeconds: null, statusText: "Connecting", connected: false, wpHome: null };
   renderMatchup(view);
   currentSource = connectStream(streamUrl, {
     wp_update: (payload) => {
-      Object.assign(view, { awayScore: payload.away_score, homeScore: payload.home_score, awayTeam: payload.away_team || view.awayTeam, homeTeam: payload.home_team || view.homeTeam, connected: true, statusText: "Live replay", clockSeconds: payload.clock ?? view.clockSeconds });
+      Object.assign(view, { awayScore: payload.away_score, homeScore: payload.home_score, awayTeam: payload.away_team || view.awayTeam, homeTeam: payload.home_team || view.homeTeam, connected: true, statusText: "Live replay", clockSeconds: payload.clock ?? view.clockSeconds, wpHome: payload.wp_home });
       if (payload.period != null) view.clockText = formatClock(payload.period, payload.clock);
       renderMatchup(view); chart.addPoint(payload);
     },
