@@ -23,19 +23,46 @@ from app.model.win_prob import WinProbModel, predict_win_prob
 
 _run_detector = RunDetector()
 
+_RARITY_PHRASES = {
+    "extreme": (
+        "about as fast as scoring runs get at this stage of a game",
+        "one of the most extreme streaks in the data",
+        "a streak that stands out even among rare ones",
+    ),
+    "high": (
+        "the kind of run that only shows up a handful of times a season",
+        "far outside the normal pace of scoring here",
+        "an extremely rare scoring streak for this point in the game",
+    ),
+    "mid": (
+        "not something you see often at this stage of a game",
+        "well outside the usual pace for this point in the game",
+        "a genuinely rare scoring streak for this point in the game",
+    ),
+}
 
-def _describe_rarity(z: float) -> str:
+
+def _rarity_tier(z: float) -> str:
+    if z >= 3.5:
+        return "extreme"
+    if z >= 3.0:
+        return "high"
+    return "mid"
+
+
+def _describe_rarity(z: float, seed: int) -> tuple[str, str]:
     """Plain-language rarity phrase for a z-score, for the layman-facing message.
 
     Thresholds are qualitative, not derived from an exact percentile lookup,
     since the baseline table only gives us mean/std per bucket, not a full
-    distribution to invert.
+    distribution to invert. `seed` picks among a few phrasings per tier so
+    consecutive heat checks don't all read as the same copy-pasted line --
+    it's derived from the run itself, so a given run always describes itself
+    the same way.
     """
-    if z >= 3.5:
-        return "one of the most extreme scoring streaks you'll see"
-    if z >= 3.0:
-        return "an extremely rare scoring streak"
-    return "a genuinely rare scoring streak"
+    tier = _rarity_tier(z)
+    phrases = _RARITY_PHRASES[tier]
+    return tier, phrases[seed % len(phrases)]
 
 
 def process_tick(
@@ -107,9 +134,11 @@ def process_tick(
             if z >= settings.anomaly_z_threshold:
                 state.current_run.anomaly_flagged = True
                 duration = t - state.current_run.start_elapsed_seconds
+                seed = state.current_run.points_scored * 31 + round(duration)
+                _tier, rarity = _describe_rarity(z, seed)
                 message = (
                     f"{state.current_run.team} just scored {state.current_run.points_scored} unanswered "
-                    f"points in {duration:.0f} seconds — {_describe_rarity(z)} for this point in the game."
+                    f"points in {duration:.0f} seconds — {rarity}."
                 )
                 state.anomalies.append(
                     AnomalyEvent(

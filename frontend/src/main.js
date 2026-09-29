@@ -42,6 +42,12 @@ function renderMatchup(view) {
   chartLegend.innerHTML = `<span class="legend-home"><i></i>${view.homeTeam || "HOME"}</span><span class="legend-away"><i></i>${view.awayTeam || "AWAY"}</span>`;
 }
 
+function heatTier(z) {
+  if (z >= 3.5) return "extreme";
+  if (z >= 3.0) return "high";
+  return "mid";
+}
+
 function addAnomalyToFeed(anomaly, clockText) {
   let list = anomalyFeed.querySelector("ul");
   if (!list) {
@@ -49,8 +55,10 @@ function addAnomalyToFeed(anomaly, clockText) {
     list = document.createElement("ul");
     anomalyFeed.appendChild(list);
   }
+  const tier = heatTier(anomaly.z_score);
   const row = document.createElement("li");
-  row.innerHTML = `<span class="tag tag-accent">${anomaly.z_score.toFixed(1)}σ</span><span>${anomaly.message}</span><code>${clockText || ""}</code>`;
+  row.className = `heat-tier-${tier}`;
+  row.innerHTML = `<span class="tag tag-zscore">${anomaly.z_score.toFixed(1)}σ</span><span>${anomaly.message}</span><code>${clockText || ""}</code>`;
   list.prepend(row);
   while (list.children.length > 10) list.lastElementChild.remove();
 }
