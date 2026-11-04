@@ -47,6 +47,8 @@ HEADERS = {
 SCOREBOARD_TTL_SECONDS = 10.0
 SCHEDULE_TTL_SECONDS = 30 * 60.0
 RETRIES = 3
+CACHE_PRUNE_ABOVE = 64
+CACHE_MAX_AGE_SECONDS = 3600.0
 # After NBA.com fails, use the fallback for this long before trying again,
 # so every page load doesn't wait on a request that will be refused.
 PRIMARY_RETRY_AFTER_SECONDS = 600.0
@@ -157,8 +159,20 @@ class HttpNbaClient:
                     logger.warning("Serving a stale copy of %s", url)
                     return cached[1]
                 raise
-            self._cache[url] = (time.monotonic(), data)
+            now = time.monotonic()
+            self._cache[url] = (now, data)
+            self._prune(now)
             return data
+
+    def _prune(self, now: float) -> None:
+        """Keep the cache bounded: drop anything older than an hour once it
+        grows (per-game summaries would otherwise pile up over days)."""
+        if len(self._cache) <= CACHE_PRUNE_ABOVE:
+            return
+        for url, (stored, _data) in list(self._cache.items()):
+            if now - stored > CACHE_MAX_AGE_SECONDS:
+                del self._cache[url]
+                self._locks.pop(url, None)
 
     async def _probe_one(self, name: str, url: str) -> tuple[dict, dict | None]:
         """One uncached request, reported as {name, url, ok, status, error, ms}."""

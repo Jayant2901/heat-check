@@ -76,6 +76,7 @@ class WeeklyService:
         self._today = today
 
         self._analyses: dict[str, dict] = {}  # game_id -> analysis, kept forever
+        self._finished: dict[str, dict] = {}  # game_id -> schedule entry, from the last build
         self._payload: dict | None = None
         self._built_at = 0.0
         self._task: asyncio.Task | None = None
@@ -107,6 +108,7 @@ class WeeklyService:
         end = self._today()
         start = end - timedelta(days=self.window_days)
         games = parse_final_games(await self.client.schedule(), start, end)
+        self._finished = {g["game_id"]: g for g in games}
         self._progress = {"done": 0, "total": len(games)}
 
         semaphore = asyncio.Semaphore(self.concurrency)
@@ -131,6 +133,32 @@ class WeeklyService:
         self._built_at = time.monotonic()
         self._error = None
         return payload
+
+    def finished_game(self, game_id: str) -> dict | None:
+        """The schedule entry for a game that finished in the window, if the
+        last build saw it ({game_id, date, home, away, home_score, ...})."""
+        return self._finished.get(game_id)
+
+    @property
+    def ready(self) -> bool:
+        return self._payload is not None
+
+    @property
+    def building(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    async def wait_ready(self, timeout: float) -> bool:
+        """Start a build if needed and wait up to `timeout` seconds for a
+        ready payload. True if one is available."""
+        if self.ready:
+            return True
+        self.snapshot()
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(asyncio.shield(self._task), timeout)
+            except (asyncio.TimeoutError, Exception):
+                pass
+        return self.ready
 
     # -- internals ------------------------------------------------------
 

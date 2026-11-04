@@ -15,9 +15,12 @@ from app.core.interfaces import GameSnapshot
 
 
 class ReplaySource:
-    def __init__(self, fixture_path: Path, start_index: int = 0):
-        data = json.loads(Path(fixture_path).read_text())
-        self._snapshots = [GameSnapshot(**s) for s in data["snapshots"]]
+    def __init__(self, fixture_path: Path | None = None, start_index: int = 0, snapshots: list[dict] | None = None):
+        # Either a fixture file, or snapshot dicts built on the fly (a past
+        # game's play-by-play, see app/nba/replays.py).
+        if snapshots is None:
+            snapshots = json.loads(Path(fixture_path).read_text())["snapshots"]
+        self._snapshots = [GameSnapshot(**s) for s in snapshots]
         self._index = max(0, min(start_index, len(self._snapshots) - 1))
 
     @property

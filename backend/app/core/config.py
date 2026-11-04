@@ -46,6 +46,8 @@ class Settings:
     # A live poller with nobody subscribed for this long stops itself.
     live_idle_stop_seconds: float = float(os.getenv("LIVE_IDLE_STOP_SECONDS", "120"))
     weekly_window_days: int = int(os.getenv("WEEKLY_WINDOW_DAYS", "7"))
+    # Start building the weekly dashboard when the server starts.
+    prewarm_week: bool = os.getenv("PREWARM_WEEK", "1").strip() not in ("0", "false", "no")
     weekly_refresh_seconds: float = float(os.getenv("WEEKLY_REFRESH_SECONDS", "600"))
     # Minimum z-score for a run to appear in "Hottest runs" on the dashboard.
     # Higher than anomaly_z_threshold on purpose: the dashboard ranks a whole

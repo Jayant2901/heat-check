@@ -8,7 +8,7 @@ import { connectStream } from "./sse-client.js";
 import { badge, esc, teamName } from "./teams.js";
 // "?v=3": bumped whenever worm-chart.js changes shape, so browsers that
 // cached an older version fetch the new one.
-import { createWormChart } from "./worm-chart.js?v=3";
+import { createWormChart, loadD3 } from "./worm-chart.js?v=4";
 
 const CHART_CAPTION =
   "Above the dashed line the home team is favoured, below it the away team. Dots are flagged runs, bigger for more unusual ones.";
@@ -314,6 +314,8 @@ export function renderGame(root, { mode, id, speed, onMode }) {
 
   async function start() {
     try {
+      // The chart needs D3; fetch it while the game is looked up.
+      const d3Ready = loadD3();
       if (mode === "live") {
         const board = await api.scoreboard();
         if (!alive) return;
@@ -326,6 +328,8 @@ export function renderGame(root, { mode, id, speed, onMode }) {
         view.home = game.home.tricode;
         view.away = game.away.tricode;
         if (game.status === "final") view.status = "final";
+        await d3Ready;
+        if (!alive) return;
         connect(liveStreamUrl(id));
       } else {
         const [session, manifest] = await Promise.all([
@@ -338,6 +342,8 @@ export function renderGame(root, { mode, id, speed, onMode }) {
           view.home = fixture.home_team;
           view.away = fixture.away_team;
         }
+        await d3Ready;
+        if (!alive) return;
         connect(session.stream_url);
       }
       ensureChart();

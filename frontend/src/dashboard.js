@@ -14,6 +14,12 @@ const RESULTS_PREVIEW = 8;
 const REPLAY_SPEEDS = [5, 10, 30, 100];
 const DEFAULT_SPEED = 10;
 
+// Any game that finished this week can be replayed through the same
+// engine as a live game (built from its play-by-play on the server).
+function replayLink(gameId, label = "Replay") {
+  return `<a class="btn btn-quiet btn-sm replay-link" href="${replayHref(gameId, DEFAULT_SPEED)}">${label} ${ARROW_RIGHT}</a>`;
+}
+
 const GENERIC_MARQUEE = [
   "Heat check",
   "Win probability, live",
@@ -27,10 +33,11 @@ const ARROW_RIGHT = `
     <path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" />
   </svg>`;
 
-export function scrollToSection(id) {
+export function scrollToSection(id, { instant = false } = {}) {
   const target = document.getElementById(id);
   if (!target) return;
-  target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  const behavior = instant || prefersReducedMotion() ? "auto" : "smooth";
+  target.scrollIntoView({ behavior, block: "start" });
 }
 
 function sectionHead(index, id, title, metaId = "") {
@@ -76,7 +83,10 @@ function layout() {
           <div id="moments-body"><p class="muted">Loading…</p></div>
         </div>
         <div class="area-results" data-reveal>
-          <div class="sub-head"><h3>Results</h3></div>
+          <div class="sub-head">
+            <h3>Results</h3>
+            <p class="kicker muted">Replay any game</p>
+          </div>
           <div id="results-body"><p class="muted">Loading…</p></div>
         </div>
         <aside class="area-best" aria-labelledby="best-title" data-reveal>
@@ -192,6 +202,13 @@ function gameTile(game) {
   if (live) {
     return `<a class="tile tile-live" href="#/live/${encodeURIComponent(game.game_id)}" aria-label="Follow ${esc(label)} live">${inner}</a>`;
   }
+  if (final) {
+    return `
+      <a class="tile tile-final tile-link" href="${replayHref(game.game_id, DEFAULT_SPEED)}" aria-label="Replay ${esc(label)}">
+        ${inner}
+        <span class="tile-cta tile-cta-quiet">Replay the win chance ${ARROW_RIGHT}</span>
+      </a>`;
+  }
   return `<article class="tile${final ? " tile-final" : ""}" aria-label="${esc(label)}">${inner}</article>`;
 }
 
@@ -240,6 +257,7 @@ function swingCard(s) {
       </div>
       <p class="moment-detail">${esc(s.detail)} <span class="muted">(${esc(s.score)})</span></p>
       ${tags ? `<div class="chip-row">${tags}</div>` : ""}
+      <div class="moment-foot">${replayLink(s.game_id, "Replay game")}</div>
     </article>`;
 }
 
@@ -255,6 +273,7 @@ function runCard(r) {
         <span class="chip chip-heat" title="Standard deviations quicker than usual for this point in a game">${r.z_score.toFixed(1)}σ</span>
       </p>
       <p class="moment-detail">${esc(r.team)} run, ${esc(r.when)} to ${esc(r.ends)}. Score after: ${esc(r.score_after)}</p>
+      <div class="moment-foot">${replayLink(r.game_id, "Replay game")}</div>
     </article>`;
 }
 
@@ -314,6 +333,7 @@ function resultRow(g) {
         ${line ? `<p>${line}</p>` : ""}
         <p class="muted">${flow}</p>
       </div>
+      ${replayLink(g.game_id)}
     </li>`;
 }
 
@@ -572,6 +592,20 @@ export function renderDashboard(root, { section, onMode }) {
   const reveal = createReveal(root);
   const timers = new Set();
   let alive = true;
+
+  // Opening #/?section=week directly: sections above it fill in after the
+  // first scroll and push it down, so keep it in view while content loads,
+  // until the visitor scrolls or a few seconds pass.
+  let pinnedSection = section && /^[a-z]+$/.test(section) ? section : null;
+  const unpin = () => {
+    pinnedSection = null;
+  };
+  const keepInView = () => {
+    if (pinnedSection) scrollToSection(pinnedSection, { instant: true });
+  };
+  for (const type of ["wheel", "touchstart", "keydown", "mousedown"]) {
+    window.addEventListener(type, unpin, { once: true, passive: true });
+  }
   let sample = false;
 
   renderMarquee($("marquee-row"), GENERIC_MARQUEE);
@@ -604,6 +638,7 @@ export function renderDashboard(root, { section, onMode }) {
       if (!alive) return;
       markMode(board.mode);
       renderTonight($("tonight-body"), $("tonight-meta"), board);
+      keepInView();
     } catch (error) {
       if (alive) $("tonight-body").innerHTML = `<p class="notice">${esc(error.message)}</p>`;
     } finally {
@@ -631,6 +666,7 @@ export function renderDashboard(root, { section, onMode }) {
         renderMoments(targets.moments, week);
         renderResults(targets.results, $("results-meta"), week);
         renderBest(targets.best, week);
+        keepInView();
         const phrases = weekPhrases(week);
         if (phrases.length) renderMarquee($("marquee-row"), phrases);
         return;
@@ -648,6 +684,7 @@ export function renderDashboard(root, { section, onMode }) {
       const data = await fetcher();
       if (!alive) return;
       render(target, data);
+      keepInView();
       reveal.scan();
       target.querySelectorAll("[data-count]").forEach((el) => reveal.count(el));
     } catch (error) {
@@ -665,8 +702,9 @@ export function renderDashboard(root, { section, onMode }) {
   loadOnce(api.modelInfo, $("how-body"), renderHow);
   document.addEventListener("visibilitychange", onVisible);
 
-  if (section && /^[a-z]+$/.test(section)) {
-    requestAnimationFrame(() => scrollToSection(section));
+  if (pinnedSection) {
+    requestAnimationFrame(keepInView);
+    later(unpin, 4000);
   }
 
   return () => {
@@ -674,6 +712,10 @@ export function renderDashboard(root, { section, onMode }) {
     for (const id of timers) clearTimeout(id);
     timers.clear();
     reveal.destroy();
+    unpin();
+    for (const type of ["wheel", "touchstart", "keydown", "mousedown"]) {
+      window.removeEventListener(type, unpin);
+    }
     document.removeEventListener("visibilitychange", onVisible);
   };
 }

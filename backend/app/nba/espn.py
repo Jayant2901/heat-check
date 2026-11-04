@@ -37,6 +37,7 @@ SUMMARY_URL = f"{ESPN_BASE}/summary?event={{event_id}}"
 
 SCOREBOARD_TTL_SECONDS = 10.0
 SCHEDULE_TTL_SECONDS = 30 * 60.0
+SUMMARY_TTL_SECONDS = 5.0
 
 # ESPN's abbreviations that differ from NBA.com's tricodes.
 TRICODES = {
@@ -392,7 +393,10 @@ class EspnNbaClient(HttpNbaClient):
         return translate_schedule(list(results))
 
     async def _summary(self, event_id: str) -> dict:
-        return await self._fetch(SUMMARY_URL.format(event_id=event_id))
+        # boxscore() and playbyplay() read the same summary, and the weekly
+        # build asks for both at once; a short cache makes that one request
+        # (and stays fresh enough for live polling every 12 s).
+        return await self._cached(SUMMARY_URL.format(event_id=event_id), SUMMARY_TTL_SECONDS)
 
     async def boxscore(self, game_id: str) -> dict:
         return translate_boxscore(await self._summary(game_id), game_id)

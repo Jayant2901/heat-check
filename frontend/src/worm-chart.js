@@ -2,7 +2,8 @@
 // Above the 50% line is the home side (accent), below it the away side
 // (ink). Colours come from CSS classes, so both themes work. Quarter rules,
 // and a marker on the 50% line for each flagged run.
-// Uses the global `d3` from /vendor/d3.min.js.
+// Uses the global `d3` from /vendor/d3.min.js, which only game pages need,
+// so it is loaded on demand with loadD3() instead of on every page.
 
 const MAX_WIDTH = 1280;
 const MIN_WIDTH = 300;
@@ -27,6 +28,25 @@ function segmentLabel(i) {
 }
 
 let chartCount = 0;
+let d3Loading = null;
+
+export function loadD3() {
+  if (window.d3) return Promise.resolve(window.d3);
+  if (!d3Loading) {
+    d3Loading = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "/vendor/d3.min.js";
+      script.async = true;
+      script.onload = () => resolve(window.d3);
+      script.onerror = () => {
+        d3Loading = null;
+        reject(new Error("Couldn't load the chart library."));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return d3Loading;
+}
 
 export function createWormChart(container, { homeLabel, awayLabel, onHover = () => {} }) {
   const d3 = window.d3;

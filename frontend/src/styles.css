@@ -764,6 +764,33 @@ main:focus {
   line-height: 1;
 }
 
+.tile-link {
+  transition: border-color 0.15s;
+}
+
+.tile-link:hover {
+  border-color: var(--accent);
+}
+
+.tile-cta-quiet {
+  color: var(--text-muted);
+}
+
+.tile-link:hover .tile-cta-quiet {
+  color: var(--accent-ink);
+}
+
+.moment-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.replay-link {
+  align-self: center;
+  gap: 10px;
+}
+
 .tile-team.is-dimmed {
   opacity: 0.45;
 }
@@ -974,7 +1001,7 @@ main:focus {
 
 .result {
   display: grid;
-  grid-template-columns: 6.5rem minmax(0, 11rem) minmax(0, 1fr);
+  grid-template-columns: 6.5rem minmax(0, 11rem) minmax(0, 1fr) auto;
   gap: 8px 18px;
   align-items: start;
   padding: 12px 0;

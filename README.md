@@ -63,6 +63,8 @@ The week is built in the background (`backend/app/nba/weekly.py`) from each fini
 A game page (`#/live/<id>` or `#/replay/<fixture>?speed=10`) shows the score, a win-chance bar, the win-probability chart in team colours, and the heat checks.
 
 ### Replay mode
+Any game that finished in the last week (or earlier today) can be replayed from the dashboard: the server turns its play-by-play into the same snapshot sequence the curated fixtures use (`backend/app/nba/replays.py`) and runs it through the same engine, so you see the win chance and heat checks unfold as they would have. Only games the server already knows finished can be replayed.
+
 A completed historical game can be stepped through the same engine code as a live game, at accelerated speed (`backend/app/datasources/replay_source.py`). This isn't a dev-only test harness — it's a permanent "watch a classic game" feature, and it's how this whole project gets built, validated, and demoed during the NBA off-season (the season is in progress from late October to June).
 
 ### API
@@ -76,7 +78,7 @@ A completed historical game can be stepped through the same engine code as a liv
 | `GET /api/games/{game_id}/state` | Non-streaming snapshot of a tracked game |
 | `GET /api/games/{game_id}/stream` | SSE stream of `wp_update` / `anomaly` / `game_end` events. A live game starts being tracked on its first connection. The id must be on today's scoreboard (404 otherwise); at most `MAX_CONCURRENT_LIVE_GAMES` (default 6) are followed at once (429 beyond that); a poller with no viewers for `LIVE_IDLE_STOP_SECONDS` (default 120) stops itself |
 | `GET /api/replays` | Available historical replay fixtures |
-| `POST /api/replays/{game_id}/start?speed=N` | Start a replay session, streamed via the same `/stream` endpoint |
+| `POST /api/replays/{game_id}/start?speed=N` | Start a replay session, streamed via the same `/stream` endpoint. `game_id` is a curated fixture, or any game that finished in the last week (or today), replayed from its play-by-play |
 | `GET /health` | Health check |
 
 Full interactive docs at `/docs` once running.
@@ -86,6 +88,9 @@ Full interactive docs at `/docs` once running.
 - **Done**: health check + live-scoreboard passthrough (M0); resumable historical fetch of game indices and play-by-play across 3 seasons, 3,941 games (M1); the training dataset and win-probability model — HistGradientBoosting, chosen over logistic regression by log-loss, 74.7% accurate across all game states of the held-out 2025-26 season, log loss 0.477 vs 0.496 for logistic regression (M2/M3; the 96.3% "buzzer-convergence" figure measured the last play of each game, where the score already decides the winner, so it is a sanity check, not an accuracy number); the run-magnitude baseline table, built from 33,761 real 6+ point runs with log-transformed durations (a right-skew correction found by testing against real games, see `app/anomaly/baseline.py`) (M4); the core engine, run detector, and anomaly z-scoring, unit-tested and validated against real games (M5); the replay simulator, proven end-to-end with the real trained artifacts (M6); live polling + SSE wired to the engine, with a live game auto-tracked on its first `/stream` connection and a replay session driven through the identical poller code path — verified against a real running server, not just unit tests (M7); the D3 worm-chart frontend — game picker, live-updating WP curve, and anomaly markers with hover tooltips — verified in a real browser against a real replay session, including a genuine flagged heat check ("home 6-0 run in 13s, 2.7-sigma") rendering correctly end-to-end (M8).
 - **Added since**: the dashboard (tonight's scoreboard, weekly moments, results and best performances), several live games at once with idle pollers stopping themselves, stream ids validated against today's scoreboard, demo data mode, a calmer frontend with D3 and the font vendored (no CDN at runtime), and parser tests for the CDN payloads.
 - **Not started**: deploy + SSE verification on Render (M9).
+
+### Loading speed
+The weekly dashboard is built in the background as soon as the server starts (`PREWARM_WEEK=0` turns that off), so the first visitor after a restart doesn't wait for it. Responses are gzipped, the vendored D3 and font are cached by browsers for a week, and D3 is only loaded on game pages.
 
 ## What the numbers do and don't mean
 
