@@ -1,8 +1,10 @@
-// The dashboard: tonight's games, the week's moments and results, the best
-// performances, replays, and how the numbers are computed.
+// The dashboard: hero, marquee, tonight's games, this week (moments,
+// results, best performances), replays, how the numbers work, and a
+// closing poster.
 
 import { api } from "./api.js";
-import { duration, localTime, percent, shortDate } from "./format.js";
+import { duration, localTime, percent, prefersReducedMotion, shortDate } from "./format.js";
+import { createReveal } from "./reveal.js";
 import { badge, esc, teamName } from "./teams.js";
 
 const SCOREBOARD_REFRESH_MS = 15000;
@@ -10,55 +12,120 @@ const WEEK_POLL_MS = 2500;
 const WEEK_ERROR_RETRY_MS = 30000;
 const RESULTS_PREVIEW = 8;
 const REPLAY_SPEEDS = [5, 10, 30, 100];
+const DEFAULT_SPEED = 10;
+
+const GENERIC_MARQUEE = [
+  "Heat check",
+  "Win probability, live",
+  "Unusual runs flagged automatically",
+  "Box score read every 12 seconds",
+  "Replay a classic game",
+];
+
+const ARROW_RIGHT = `
+  <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path d="M2 8h11M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square" />
+  </svg>`;
+
+export function scrollToSection(id) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+}
+
+function sectionHead(index, id, title, metaId = "") {
+  return `
+    <div class="section-head" data-reveal>
+      <div>
+        <p class="kicker section-index">${index}</p>
+        <h2 id="${id}">${title}</h2>
+      </div>
+      ${metaId ? `<p class="section-meta" id="${metaId}" aria-live="polite"></p>` : ""}
+    </div>`;
+}
 
 function layout() {
   return `
-    <section class="section" id="tonight" aria-labelledby="tonight-title">
-      <div class="section-head">
-        <h1 id="tonight-title">Tonight</h1>
-        <p class="section-meta" id="tonight-meta" aria-live="polite"></p>
+    <section class="hero" id="top" aria-labelledby="hero-title" data-reveal>
+      <p class="eyebrow"><span class="eyebrow-bar" aria-hidden="true"></span>Live NBA win probability</p>
+      <h1 class="hero-title" id="hero-title">Every run has a <span class="accent">temperature</span></h1>
+      <p class="lede">
+        Any broadcast can tell you a team is on an 8-0 run. This z-scores that run against three seasons
+        of real ones and tells you whether it is actually unusual.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#/?section=replays">Watch a replay ${ARROW_RIGHT}</a>
+        <a class="btn btn-ghost" href="#/?section=how">Read the method</a>
       </div>
-      <div id="tonight-body"><p class="muted">Loading today's games…</p></div>
     </section>
 
-    <div class="dashboard-grid">
-      <section class="section area-moments" aria-labelledby="moments-title">
-        <div class="section-head">
-          <h2 id="moments-title">Moments of the week</h2>
-        </div>
-        <div id="moments-body"><p class="muted">Loading…</p></div>
-      </section>
+    <div class="marquee bleed" aria-hidden="true">
+      <div class="marquee-row" id="marquee-row"></div>
+    </div>
 
-      <section class="section area-results" id="results" aria-labelledby="results-title">
-        <div class="section-head">
-          <h2 id="results-title">Results</h2>
-          <p class="section-meta" id="results-meta"></p>
-        </div>
-        <div id="results-body"><p class="muted">Loading…</p></div>
-      </section>
+    <section class="section" id="tonight" aria-labelledby="tonight-title">
+      ${sectionHead("01", "tonight-title", "Tonight", "tonight-meta")}
+      <div id="tonight-body" data-reveal><p class="muted">Loading today's games…</p></div>
+    </section>
 
-      <aside class="section area-best" aria-labelledby="best-title">
-        <div class="section-head">
-          <h2 id="best-title">Best performances</h2>
-          <p class="section-meta">Ranked by Game Score</p>
+    <section class="section" id="week" aria-labelledby="week-title">
+      ${sectionHead("02", "week-title", "This week", "results-meta")}
+      <div class="week-grid">
+        <div class="area-moments" data-reveal>
+          <div class="sub-head"><h3>Moments of the week</h3></div>
+          <div id="moments-body"><p class="muted">Loading…</p></div>
         </div>
-        <div id="best-body"><p class="muted">Loading…</p></div>
-      </aside>
-
-      <section class="section area-replay" aria-labelledby="replay-title">
-        <details class="replays">
-          <summary><h2 id="replay-title">Replay a classic game</h2></summary>
-          <div id="replay-body" class="replay-grid"><p class="muted">Loading…</p></div>
-        </details>
-      </section>
-
-      <section class="section area-how" id="how" aria-labelledby="how-title">
-        <div class="section-head">
-          <h2 id="how-title">How the numbers work</h2>
+        <div class="area-results" data-reveal>
+          <div class="sub-head"><h3>Results</h3></div>
+          <div id="results-body"><p class="muted">Loading…</p></div>
         </div>
-        <div id="how-body" class="how-grid"><p class="muted">Loading…</p></div>
-      </section>
-    </div>`;
+        <aside class="area-best" aria-labelledby="best-title" data-reveal>
+          <div class="sub-head">
+            <h3 id="best-title">Best performances</h3>
+            <p class="kicker muted">By Game Score</p>
+          </div>
+          <div id="best-body"><p class="muted">Loading…</p></div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section" id="replays" aria-labelledby="replay-title">
+      ${sectionHead("03", "replay-title", "Replay a classic game")}
+      <div id="replay-body" class="replay-grid" data-reveal><p class="muted">Loading…</p></div>
+    </section>
+
+    <section class="section" id="how" aria-labelledby="how-title">
+      ${sectionHead("04", "how-title", "How the numbers work")}
+      <div id="how-body" data-reveal><p class="muted">Loading…</p></div>
+    </section>
+
+    <section class="poster bleed" aria-label="Closing">
+      <p>Momentum is a feeling. <span class="accent">Sigma is a number.</span></p>
+    </section>`;
+}
+
+// ---------------------------------------------------------------- marquee
+
+function renderMarquee(row, phrases) {
+  // Each track repeats the phrases until it is comfortably wider than any
+  // screen, so translating the row by -50% (one track) loops seamlessly.
+  const items = [];
+  while (items.length < 12) items.push(...phrases);
+  const track = `<div class="marquee-track">${items
+    // Uppercasing would turn σ into Σ (a different symbol), so keep it as is.
+    .map((p) => `<span class="marquee-item">${esc(p).replaceAll("σ", '<span class="sigma">σ</span>')}</span>`)
+    .join("")}</div>`;
+  row.innerHTML = track + track;
+}
+
+function weekPhrases(week) {
+  const runs = week.moments.runs.slice(0, 3).map(
+    (r) => `${r.team} ${r.points}-0 in ${duration(r.duration_sec)} · ${r.z_score.toFixed(1)}σ`,
+  );
+  const swings = week.moments.swings.slice(0, 2).map(
+    (s) => `${s.team} win chance ${percent(s.wp_before)} to ${percent(s.wp_after)}`,
+  );
+  return [...runs, ...swings];
 }
 
 // ---------------------------------------------------------------- tonight
@@ -70,19 +137,19 @@ function leaderLine(leader) {
 
 function teamRow(side, game, { showScore, dimmed }) {
   const t = game[side];
-  const record = `${t.wins}-${t.losses}`;
   return `
     <div class="tile-team${dimmed ? " is-dimmed" : ""}">
       ${badge(t.tricode)}
       <span class="tile-team-name">${esc(t.name || teamName(t.tricode))}</span>
-      <span class="tile-record">${esc(record)}</span>
-      ${showScore ? `<span class="tile-score num">${t.score}</span>` : ""}
+      <span class="tile-record">${t.wins}-${t.losses}</span>
+      ${showScore ? `<span class="tile-score">${t.score}</span>` : ""}
     </div>`;
 }
 
 function gameTile(game) {
   const live = game.status === "live";
   const final = game.status === "final";
+  const scheduled = game.status === "scheduled";
   const homeWon = game.home.score > game.away.score;
 
   let chip;
@@ -99,8 +166,8 @@ function gameTile(game) {
   }
 
   const rows = [
-    teamRow("away", game, { showScore: !game.status.startsWith("sched"), dimmed: final && homeWon }),
-    teamRow("home", game, { showScore: !game.status.startsWith("sched"), dimmed: final && !homeWon }),
+    teamRow("away", game, { showScore: !scheduled, dimmed: final && homeWon }),
+    teamRow("home", game, { showScore: !scheduled, dimmed: final && !homeWon }),
   ].join("");
 
   const leaders = live
@@ -115,7 +182,7 @@ function gameTile(game) {
     <div class="tile-top">${chip}<span class="tile-when">${when}</span></div>
     ${rows}
     ${leaders}
-    ${live ? `<span class="tile-cta">Follow live <span aria-hidden="true">→</span></span>` : ""}`;
+    ${live ? `<span class="tile-cta">Follow live ${ARROW_RIGHT}</span>` : ""}`;
 
   if (live) {
     return `<a class="tile tile-live" href="#/live/${encodeURIComponent(game.game_id)}" aria-label="Follow ${esc(label)} live">${inner}</a>`;
@@ -131,9 +198,15 @@ function renderTonight(container, meta, board) {
     : "";
   if (!games.length) {
     container.innerHTML = `
-      <div class="empty">
-        <p>No NBA games today.</p>
-        <p class="muted"><a href="#/?section=results">See this week's results</a> or replay a classic game below.</p>
+      <div class="card empty-card">
+        <div>
+          <h3>No NBA games today</h3>
+          <p class="muted">
+            See <a href="#/?section=week">this week's results</a> or
+            <a href="#/?section=replays">replay a classic game</a>.
+          </p>
+        </div>
+        <span class="chip">No games</span>
       </div>`;
     return;
   }
@@ -153,8 +226,7 @@ function swingCard(s) {
         <p class="moment-where">${esc(s.matchup)} · ${esc(shortDate(s.date))} · ${esc(s.when)}</p>
       </header>
       <p class="moment-title">
-        ${esc(s.team)} win chance <span class="num">${percent(s.wp_before)}</span>
-        to <span class="num gain">${percent(s.wp_after)}</span>
+        ${esc(s.team)} win chance ${percent(s.wp_before)} to <span class="gain">${percent(s.wp_after)}</span>
       </p>
       <div class="swing-bar" role="img" aria-label="Win chance moved from ${percent(s.wp_before)} to ${percent(s.wp_after)}">
         <span class="swing-mid" style="left:50%"></span>
@@ -174,8 +246,8 @@ function runCard(r) {
         <p class="moment-where">${esc(r.matchup)} · ${esc(shortDate(r.date))} · ${esc(r.when)}</p>
       </header>
       <p class="moment-title">
-        <span class="num">${r.points}-0</span> in ${esc(duration(r.duration_sec))}
-        <span class="chip chip-heat num" title="Standard deviations faster than usual for this point in a game">${r.z_score.toFixed(1)}σ</span>
+        ${r.points}-0 in ${esc(duration(r.duration_sec))}
+        <span class="chip chip-heat" title="Standard deviations quicker than usual for this point in a game">${r.z_score.toFixed(1)}σ</span>
       </p>
       <p class="moment-detail">${esc(r.team)} run, ${esc(r.when)} to ${esc(r.ends)}. Score after: ${esc(r.score_after)}</p>
     </article>`;
@@ -188,10 +260,10 @@ function renderMoments(container, week) {
       <button class="tab" role="tab" id="tab-swings" aria-controls="panel-swings" aria-selected="true">Biggest swings</button>
       <button class="tab" role="tab" id="tab-runs" aria-controls="panel-runs" aria-selected="false" tabindex="-1">Hottest runs</button>
     </div>
-    <div class="tab-panel moment-grid" role="tabpanel" id="panel-swings" aria-labelledby="tab-swings">
+    <div class="moment-grid" role="tabpanel" id="panel-swings" aria-labelledby="tab-swings">
       ${swings.length ? swings.map(swingCard).join("") : `<p class="muted">No big swings this week.</p>`}
     </div>
-    <div class="tab-panel moment-grid" role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" hidden>
+    <div class="moment-grid" role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" hidden>
       ${runs.length ? runs.map(runCard).join("") : `<p class="muted">No unusually quick runs this week.</p>`}
     </div>`;
 
@@ -251,7 +323,7 @@ function renderResults(container, meta, week) {
   const extra = games.length > RESULTS_PREVIEW;
   container.innerHTML = `
     <ol class="results">${games.map(resultRow).join("")}</ol>
-    ${extra ? `<button class="button button-quiet" type="button" aria-expanded="false">Show all ${games.length} games</button>` : ""}`;
+    ${extra ? `<button class="btn btn-quiet btn-sm" type="button" aria-expanded="false">Show all ${games.length} games</button>` : ""}`;
   const rows = [...container.querySelectorAll(".result")];
   rows.forEach((row, index) => {
     row.hidden = index >= RESULTS_PREVIEW;
@@ -279,20 +351,20 @@ function renderBest(container, week) {
     .map(
       (p, i) => `
       <li class="perf">
-        <span class="perf-rank num">${i + 1}</span>
+        <span class="perf-rank">${String(i + 1).padStart(2, "0")}</span>
         <div class="perf-body">
           <p class="perf-name">${esc(p.name)} ${badge(p.team, { size: "sm" })}</p>
-          <p class="perf-line">${esc(p.line)}, ${esc(p.fg)} FG</p>
+          <p>${esc(p.line)}, ${esc(p.fg)} FG</p>
           <p class="muted">vs ${esc(p.opponent)} · ${esc(p.result)} · ${esc(shortDate(p.date))}</p>
         </div>
-        <span class="perf-score num" title="Game Score">${p.game_score.toFixed(1)}</span>
+        <span class="perf-score" title="Game Score">${p.game_score.toFixed(1)}</span>
       </li>`,
     )
     .join("");
 
   const leaderList = (title, rows, unit) => `
     <div class="leader-list">
-      <h3>${title}</h3>
+      <h4 class="kicker">${title}</h4>
       <ol>
         ${rows
           .map(
@@ -305,7 +377,7 @@ function renderBest(container, week) {
   const consistent = week.week_averages.length
     ? `
       <div class="leader-list">
-        <h3>Most consistent</h3>
+        <h4 class="kicker">Most consistent</h4>
         <p class="muted small">Average Game Score, 2+ games this week</p>
         <ol>
           ${week.week_averages
@@ -335,20 +407,22 @@ function renderWeekBuilding(progress, targets) {
   const bar = total
     ? `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><span style="width:${(done / total) * 100}%"></span></div>`
     : "";
-  const html = `<div class="building"><p>Reading this week's games…${counts}</p>${bar}</div>`;
-  targets.moments.innerHTML = html;
+  targets.moments.innerHTML = `<div class="building"><p>Reading this week's games…${counts}</p>${bar}</div>`;
   targets.results.innerHTML = `<p class="muted">Results appear once the week is read.</p>`;
   targets.best.innerHTML = `<p class="muted">Box scores appear once the week is read.</p>`;
 }
 
 function renderWeekError(message, targets) {
-  const html = `<p class="notice">${esc(message)} Trying again shortly.</p>`;
-  targets.moments.innerHTML = html;
+  targets.moments.innerHTML = `<p class="notice">${esc(message)} Trying again shortly.</p>`;
   targets.results.innerHTML = "";
   targets.best.innerHTML = `<p class="muted">Unavailable right now.</p>`;
 }
 
 // ---------------------------------------------------------------- replays
+
+function replayHref(fixtureId, speed) {
+  return `#/replay/${encodeURIComponent(fixtureId)}?speed=${speed}`;
+}
 
 function renderReplays(container, data) {
   const fixtures = data.fixtures || [];
@@ -357,32 +431,42 @@ function renderReplays(container, data) {
     return;
   }
   container.innerHTML = fixtures
-    .map((f) => {
-      const selectId = `speed-${esc(f.game_id)}`;
+    .map((f, n) => {
+      const group = `speed-${n}`;
       const options = REPLAY_SPEEDS.map(
-        (s) => `<option value="${s}"${s === 10 ? " selected" : ""}>${s}× speed</option>`,
+        (s) => `
+          <label class="seg-opt">
+            <input type="radio" name="${group}" value="${s}"${s === DEFAULT_SPEED ? " checked" : ""} />
+            <span>${s}×</span>
+          </label>`,
       ).join("");
       return `
-        <article class="replay-card">
-          <p class="replay-label">${esc(f.label)}</p>
-          <p class="replay-teams">
-            ${badge(f.away_team, { size: "sm" })} ${esc(f.away_team)} <span class="num">${f.final_away_score}</span>
-            <span class="muted">at</span>
-            ${badge(f.home_team, { size: "sm" })} ${esc(f.home_team)} <span class="num">${f.final_home_score}</span>
+        <article class="card replay-card">
+          <p class="replay-matchup">
+            ${badge(f.away_team)} ${esc(f.away_team)}
+            <span class="kicker">Final</span>
+            ${esc(f.home_team)} ${badge(f.home_team)}
           </p>
-          <p class="muted small">${esc(f.season)} season</p>
-          <div class="replay-actions">
-            <label class="visually-hidden" for="${selectId}">Replay speed</label>
-            <select id="${selectId}" class="select">${options}</select>
-            <a class="button" href="#/replay/${encodeURIComponent(f.game_id)}?speed=10" data-fixture="${esc(f.game_id)}">Watch</a>
+          <p class="replay-score">${f.final_away_score}–${f.final_home_score}</p>
+          <div class="replay-meta">
+            <h3>${esc(f.label)}</h3>
+            <p class="muted small">${esc(f.season)} · ${esc(f.away_team)} at ${esc(f.home_team)}</p>
           </div>
+          <fieldset class="seg">
+            <legend class="visually-hidden">Replay speed for ${esc(f.label)}</legend>
+            ${options}
+          </fieldset>
+          <a class="btn btn-primary btn-block" href="${replayHref(f.game_id, DEFAULT_SPEED)}" data-fixture="${esc(f.game_id)}">
+            Watch replay ${ARROW_RIGHT}
+          </a>
         </article>`;
     })
     .join("");
-  for (const select of container.querySelectorAll("select")) {
-    const link = select.parentElement.querySelector("a");
-    select.addEventListener("change", () => {
-      link.href = `#/replay/${encodeURIComponent(link.dataset.fixture)}?speed=${select.value}`;
+
+  for (const card of container.querySelectorAll(".replay-card")) {
+    const link = card.querySelector("a[data-fixture]");
+    card.querySelector("fieldset").addEventListener("change", (event) => {
+      link.href = replayHref(link.dataset.fixture, event.target.value);
     });
   }
 }
@@ -390,49 +474,88 @@ function renderReplays(container, data) {
 // ---------------------------------------------------------------- how
 
 function renderHow(container, info) {
-  const pct = (x) => `${(x * 100).toFixed(1)}%`;
   const num = (x) => Number(x).toLocaleString();
   const seasons = (info.seasons || []).slice().sort().join(", ");
+  const trained = (info.train_seasons || []).join(" and ");
+  const poll = info.poll_interval_seconds;
+
+  const stat = (value, attrs, caption) => `
+    <div class="stat">
+      <strong class="stat-num" ${attrs}>${value}</strong>
+      <span class="kicker stat-cap">${caption}</span>
+    </div>`;
+  const accuracy = info.accuracy * 100;
+
+  const rows = [
+    {
+      title: "Poll",
+      body: `<p>During a game the server reads NBA.com's box score every ${poll} seconds: score, quarter and clock.</p>`,
+    },
+    {
+      title: "Recompute",
+      body: `
+        <p>
+          A gradient-boosted model trained on ${esc(trained)} and tested on the held-out ${esc(info.test_season)}
+          season turns that into each team's chance of winning. Its favourite won ${accuracy.toFixed(1)}% of the
+          time across every moment of those games, with a log loss of ${info.log_loss.toFixed(3)} against
+          ${info.logistic_log_loss.toFixed(3)} for a plain logistic regression (lower is better).
+        </p>
+        <p class="muted">
+          It only knows the score margin, the time left and the quarter. It has no idea how good either team is,
+          so every game starts near 50%.
+        </p>`,
+    },
+    {
+      title: "Flag",
+      body: `
+        <p>
+          When a team scores 6 or more unanswered points, the time it took is compared with ${num(info.n_runs)} runs
+          from ${esc(seasons)} at the same stage of a game. Runs at least ${info.anomaly_z_threshold} standard
+          deviations quicker than usual are flagged as heat checks.
+        </p>
+        <p class="muted">
+          That threshold was set by looking at three games, not by a proper evaluation. A ${poll}-second poll can
+          merge baskets, so a replay (sampled every few seconds) and the same game live can flag different runs.
+          The run history also includes ${esc(info.test_season)}, the season the model was tested on.
+        </p>`,
+    },
+    {
+      title: "Recap",
+      body: `
+        <p>
+          Moments of the week are read from each finished game's play-by-play. A swing is a single play that moved
+          the win chance by at least 8 points, comparing the moment just before and just after it. A hot run is an
+          unanswered run of 8+ points at least ${info.weekly_run_min_z} standard deviations quicker than usual,
+          timed to the second.
+        </p>
+        <p class="muted">
+          Game Score is John Hollinger's one-number summary of a box score line: roughly points, plus credit for
+          rebounds, assists, steals and blocks, minus missed shots, fouls and turnovers.
+        </p>`,
+    },
+  ];
+
   container.innerHTML = `
-    <article class="how">
-      <h3>Win chance</h3>
-      <p>
-        A gradient-boosted model trained on ${esc((info.train_seasons || []).join(" and "))} and tested on the
-        held-out ${esc(info.test_season)} season (${num(info.n_test_rows)} game states). Its favourite won
-        <strong>${pct(info.accuracy)}</strong> of the time across every moment of those games, with a log loss of
-        ${info.log_loss.toFixed(3)} against ${info.logistic_log_loss.toFixed(3)}
-        for a plain logistic regression (lower is better).
-      </p>
-      <p class="muted">
-        It only knows the score margin, the time left and the quarter. It has no idea how good either team is,
-        so every game starts near 50%.
-      </p>
-    </article>
-    <article class="how">
-      <h3>Heat checks</h3>
-      <p>
-        During a game the server reads the box score every ${info.poll_interval_seconds} seconds. When a team scores
-        6 or more unanswered points, the time it took is compared with ${num(info.n_runs)} runs from ${esc(seasons)}
-        at the same stage of a game. Runs at least ${info.anomaly_z_threshold} standard deviations quicker than usual are flagged.
-      </p>
-      <p class="muted">
-        That threshold was set by looking at three games, not by a proper evaluation. A ${info.poll_interval_seconds}-second
-        poll can merge baskets, so a replay (sampled every few seconds) and the same game live can flag different runs.
-        The run history also includes ${esc(info.test_season)}, the season the model was tested on.
-      </p>
-    </article>
-    <article class="how">
-      <h3>Moments of the week</h3>
-      <p>
-        Read from each finished game's play-by-play. A swing is a single play that moved the win chance by at least
-        8 points, comparing the moment just before and just after it. A hot run is an unanswered run of 8+ points that was
-        at least ${info.weekly_run_min_z} standard deviations quicker than usual, timed to the second.
-      </p>
-      <p class="muted">
-        Game Score is John Hollinger's one-number summary of a box score line: roughly points, plus credit for
-        rebounds, assists, steals and blocks, minus missed shots, fouls and turnovers.
-      </p>
-    </article>`;
+    <div class="stat-strip">
+      <div class="stat-grid">
+        ${stat(num(info.n_runs), `data-count="${info.n_runs}"`, "Real 6+ point runs in the baseline")}
+        ${stat(`${accuracy.toFixed(1)}%`, `data-count="${accuracy}" data-decimals="1" data-suffix="%"`, `Favourite won, held-out ${esc(info.test_season)}`)}
+        ${stat(num(info.n_test_rows), `data-count="${info.n_test_rows}"`, "Held-out game states tested")}
+        ${stat(`${poll}s`, `data-count="${poll}" data-suffix="s"`, "Between box-score reads")}
+      </div>
+    </div>
+    <ol class="pipeline">
+      ${rows
+        .map(
+          (row, i) => `
+          <li class="pipe-row">
+            <span class="pipe-index">${String(i + 1).padStart(2, "0")}</span>
+            <h3>${row.title}</h3>
+            <div class="pipe-body">${row.body}</div>
+          </li>`,
+        )
+        .join("")}
+    </ol>`;
 }
 
 // ---------------------------------------------------------------- wiring
@@ -441,9 +564,13 @@ export function renderDashboard(root, { section, onMode }) {
   root.innerHTML = layout();
   const $ = (id) => root.querySelector(`#${id}`);
   const targets = { moments: $("moments-body"), results: $("results-body"), best: $("best-body") };
+  const reveal = createReveal(root);
   const timers = new Set();
   let alive = true;
   let sample = false;
+
+  renderMarquee($("marquee-row"), GENERIC_MARQUEE);
+  reveal.scan();
 
   const later = (fn, ms) => {
     const id = setTimeout(() => {
@@ -463,21 +590,25 @@ export function renderDashboard(root, { section, onMode }) {
     }
   };
 
-  async function loadScoreboard() {
-    if (document.visibilityState !== "visible") {
-      later(loadScoreboard, SCOREBOARD_REFRESH_MS);
-      return;
-    }
+  let inflight = false;
+  async function refreshScoreboard() {
+    if (inflight) return;
+    inflight = true;
     try {
       const board = await api.scoreboard();
       if (!alive) return;
       markMode(board.mode);
       renderTonight($("tonight-body"), $("tonight-meta"), board);
     } catch (error) {
-      if (!alive) return;
-      $("tonight-body").innerHTML = `<p class="notice">${esc(error.message)}</p>`;
+      if (alive) $("tonight-body").innerHTML = `<p class="notice">${esc(error.message)}</p>`;
+    } finally {
+      inflight = false;
     }
-    later(loadScoreboard, SCOREBOARD_REFRESH_MS);
+  }
+
+  async function scoreboardLoop() {
+    if (document.visibilityState === "visible") await refreshScoreboard();
+    later(scoreboardLoop, SCOREBOARD_REFRESH_MS);
   }
 
   async function loadWeek() {
@@ -495,6 +626,8 @@ export function renderDashboard(root, { section, onMode }) {
         renderMoments(targets.moments, week);
         renderResults(targets.results, $("results-meta"), week);
         renderBest(targets.best, week);
+        const phrases = weekPhrases(week);
+        if (phrases.length) renderMarquee($("marquee-row"), phrases);
         return;
       }
     } catch (error) {
@@ -508,46 +641,34 @@ export function renderDashboard(root, { section, onMode }) {
   async function loadOnce(fetcher, target, render) {
     try {
       const data = await fetcher();
-      if (alive) render(target, data);
+      if (!alive) return;
+      render(target, data);
+      reveal.scan();
+      target.querySelectorAll("[data-count]").forEach((el) => reveal.count(el));
     } catch (error) {
       if (alive) target.innerHTML = `<p class="notice">${esc(error.message)}</p>`;
     }
   }
 
   const onVisible = () => {
-    if (document.visibilityState === "visible") loadScoreboardNow();
+    if (document.visibilityState === "visible") refreshScoreboard();
   };
-  let inflight = false;
-  async function loadScoreboardNow() {
-    if (inflight) return;
-    inflight = true;
-    try {
-      const board = await api.scoreboard();
-      if (alive) {
-        markMode(board.mode);
-        renderTonight($("tonight-body"), $("tonight-meta"), board);
-      }
-    } catch {
-      // the regular refresh will report it
-    } finally {
-      inflight = false;
-    }
-  }
 
-  loadScoreboard();
+  scoreboardLoop();
   loadWeek();
   loadOnce(api.replays, $("replay-body"), renderReplays);
   loadOnce(api.modelInfo, $("how-body"), renderHow);
   document.addEventListener("visibilitychange", onVisible);
 
   if (section && /^[a-z]+$/.test(section)) {
-    requestAnimationFrame(() => $(section)?.scrollIntoView({ block: "start" }));
+    requestAnimationFrame(() => scrollToSection(section));
   }
 
   return () => {
     alive = false;
     for (const id of timers) clearTimeout(id);
     timers.clear();
+    reveal.destroy();
     document.removeEventListener("visibilitychange", onVisible);
   };
 }

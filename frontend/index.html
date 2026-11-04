@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light dark" />
-  <meta name="theme-color" content="#f6f5f3" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f3f2f2" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#161514" media="(prefers-color-scheme: dark)" />
   <meta name="description" content="Tonight's NBA games, the week's biggest swings and hottest runs, and a live win-probability chart." />
   <title>Heat Check</title>
-  <link rel="preload" href="/vendor/fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="stylesheet" href="/src/styles.css?v=2" />
+  <link rel="preload" href="/vendor/fonts/archivo-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/src/styles.css?v=3" />
 </head>
 <body>
   <a class="skip-link" href="#app">Skip to content</a>
@@ -17,10 +17,12 @@
   <header class="site-header">
     <div class="wrap site-header-inner">
       <a class="brand" href="#/">Heat Check</a>
-      <span id="sample-pill" class="pill pill-sample" hidden>Sample data</span>
+      <span id="sample-pill" class="pill" hidden>Sample data</span>
       <nav class="site-nav" aria-label="Primary">
-        <a href="#/">Dashboard</a>
-        <a href="#/?section=how">How it works</a>
+        <a href="#/?section=tonight">Live</a>
+        <a class="nav-wide" href="#/?section=week">This week</a>
+        <a href="#/?section=replays">Replays</a>
+        <a class="btn btn-ghost btn-sm nav-wide" href="#/?section=how">How it works</a>
       </nav>
     </div>
   </header>
@@ -43,6 +45,6 @@
   </footer>
 
   <script src="/vendor/d3.min.js" defer></script>
-  <script type="module" src="/src/main.js?v=2"></script>
+  <script type="module" src="/src/main.js?v=3"></script>
 </body>
 </html>

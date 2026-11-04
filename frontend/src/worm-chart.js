@@ -1,9 +1,10 @@
 // Win-probability chart: the home team's chance of winning over game time.
-// Above the 50% line is filled in the home colour, below in the away
-// colour. Quarter gridlines, and a marker for each flagged run.
+// Above the 50% line is the home side (accent), below it the away side
+// (ink). Colours come from CSS classes, so both themes work. Quarter rules,
+// and a marker on the 50% line for each flagged run.
 // Uses the global `d3` from /vendor/d3.min.js.
 
-const MAX_WIDTH = 760;
+const MAX_WIDTH = 1280;
 const MIN_WIDTH = 300;
 const MARGIN = { top: 16, right: 12, bottom: 28, left: 40 };
 const REGULATION = 2880;
@@ -27,7 +28,7 @@ function segmentLabel(i) {
 
 let chartCount = 0;
 
-export function createWormChart(container, { homeColor, awayColor, homeLabel, awayLabel, onHover = () => {} }) {
+export function createWormChart(container, { homeLabel, awayLabel, onHover = () => {} }) {
   const d3 = window.d3;
   chartCount += 1;
   const id = `wp-${chartCount}`;
@@ -87,23 +88,19 @@ export function createWormChart(container, { homeColor, awayColor, homeLabel, aw
 
   const homeArea = plot
     .append("path")
-    .attr("class", "wp-area")
-    .attr("fill", homeColor)
+    .attr("class", "wp-area wp-area-home")
     .attr("clip-path", `url(#${id}-above)`);
   const awayArea = plot
     .append("path")
-    .attr("class", "wp-area")
-    .attr("fill", awayColor)
+    .attr("class", "wp-area wp-area-away")
     .attr("clip-path", `url(#${id}-below)`);
   const homeLine = plot
     .append("path")
-    .attr("class", "wp-line")
-    .attr("stroke", homeColor)
+    .attr("class", "wp-line wp-line-home")
     .attr("clip-path", `url(#${id}-above)`);
   const awayLine = plot
     .append("path")
-    .attr("class", "wp-line")
-    .attr("stroke", awayColor)
+    .attr("class", "wp-line wp-line-away")
     .attr("clip-path", `url(#${id}-below)`);
   const latest = plot.append("circle").attr("class", "wp-latest").attr("r", 4).style("display", "none");
 
@@ -157,14 +154,14 @@ export function createWormChart(container, { homeColor, awayColor, homeLabel, aw
     sideLabels
       .selectAll("text")
       .data([
-        { text: `${homeLabel} ahead`, y: MARGIN.top + 12, color: homeColor },
-        { text: `${awayLabel} ahead`, y: innerBottom - 6, color: awayColor },
+        { text: `${homeLabel} ahead`, y: MARGIN.top + 12, side: "home" },
+        { text: `${awayLabel} ahead`, y: innerBottom - 6, side: "away" },
       ])
       .join("text")
       .attr("x", WIDTH - MARGIN.right - 6)
       .attr("text-anchor", "end")
       .attr("y", (d) => d.y)
-      .attr("fill", (d) => d.color)
+      .attr("class", (d) => `wp-side-${d.side}`)
       .text((d) => d.text);
   }
 
@@ -179,7 +176,7 @@ export function createWormChart(container, { homeColor, awayColor, homeLabel, aw
         .style("display", null)
         .attr("cx", x(last.t))
         .attr("cy", y(last.wp_home))
-        .attr("fill", last.wp_home >= 0.5 ? homeColor : awayColor);
+        .attr("class", `wp-latest ${last.wp_home >= 0.5 ? "wp-latest-home" : "wp-latest-away"}`);
     }
     markers
       .selectAll("g.wp-marker")
@@ -187,7 +184,7 @@ export function createWormChart(container, { homeColor, awayColor, homeLabel, aw
       .join((enter) => {
         const g = enter.append("g").attr("class", "wp-marker").attr("tabindex", 0).attr("role", "button");
         g.append("line").attr("class", "wp-marker-rule");
-        g.append("circle").attr("class", "wp-marker-dot").attr("r", 6);
+        g.append("circle").attr("class", "wp-marker-dot");
         g.append("title");
         g.on("mouseenter focus", (event, d) => onHover(d.message));
         g.on("mouseleave blur", () => onHover(null));
@@ -207,7 +204,8 @@ export function createWormChart(container, { homeColor, awayColor, homeLabel, aw
         g
           .select("circle")
           .attr("cx", (d) => x(d.t))
-          .attr("cy", MARGIN.top + 6),
+          .attr("cy", y(0.5))
+          .attr("r", (d) => Math.min(9, 4 + d.z_score)),
       );
   }
 

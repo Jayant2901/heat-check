@@ -1,5 +1,5 @@
 // Team names and colours, plus the two HTML helpers every view uses.
-// Team colours appear only on badges and in the win-probability chart.
+// Team colours appear only on badges.
 
 const TEAMS = {
   ATL: { name: "Hawks", city: "Atlanta", primary: "#e03a3e", secondary: "#c1d32f" },
@@ -76,12 +76,6 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-function distance(a, b) {
-  const [r1, g1, b1] = rgb(a);
-  const [r2, g2, b2] = rgb(b);
-  return Math.hypot(r1 - r2, g1 - g2, b1 - b2);
-}
-
 // Text colour for a badge filled with the team colour.
 function inkOn(hex) {
   return contrast(hex, "#ffffff") >= contrast(hex, "#111111") ? "#ffffff" : "#111111";
@@ -93,24 +87,4 @@ export function badge(code, { size = "" } = {}) {
   const title = esc([team(code).city, teamName(code)].filter(Boolean).join(" "));
   const sizeClass = size ? ` badge-${size}` : "";
   return `<span class="badge${sizeClass}" style="--team:${colour};--team-ink:${inkOn(colour)}" title="${title}">${label}</span>`;
-}
-
-function isDark() {
-  return window.matchMedia("(prefers-color-scheme: dark)").matches;
-}
-
-// Chart colours for a matchup: each must be visible on the page background,
-// and the two must be told apart (BOS and MIL are both green, for example).
-export function matchupColors(home, away) {
-  const background = isDark() ? "#16181c" : "#ffffff";
-  const pick = (code, avoid) => {
-    const options = [team(code).primary, team(code).secondary];
-    const visible = options.filter((c) => contrast(c, background) >= 2.2);
-    const pool = visible.length ? visible : [isDark() ? "#d1d5db" : "#4b5563"];
-    if (!avoid) return pool[0];
-    return pool.find((c) => distance(c, avoid) > 110) || (isDark() ? "#d1d5db" : "#4b5563");
-  };
-  const homeColor = pick(home);
-  const awayColor = pick(away, homeColor);
-  return { home: homeColor, away: awayColor };
 }
