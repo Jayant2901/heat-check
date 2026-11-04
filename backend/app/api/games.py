@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api", tags=["games"])
 
 
 def unreachable(exc: BaseException) -> str:
-    return f"NBA.com's scoreboard is unreachable right now ({describe_error(exc)}). Try again in a minute."
+    return f"Live NBA data is unreachable right now ({describe_error(exc)}). Try again in a minute."
 
 
 async def todays_scoreboard() -> dict:
@@ -36,7 +36,7 @@ async def get_scoreboard():
         raise HTTPException(status_code=503, detail=unreachable(exc))
     for game in board["games"]:
         game["tracked"] = poller_manager.is_active(game["game_id"])
-    return {"mode": client.mode, **board}
+    return {"mode": client.mode, "source": getattr(client, "source", None), **board}
 
 
 @router.get("/nba-check")
@@ -47,7 +47,12 @@ async def nba_check():
     if not hasattr(client, "probe"):
         return {"mode": client.mode, "note": "Demo mode does not contact NBA.com.", "checks": []}
     checks = await client.probe()
-    return {"mode": client.mode, "ok": all(c["ok"] for c in checks), "checks": checks}
+    return {
+        "mode": client.mode,
+        "source_in_use": getattr(client, "source", None),
+        "ok": any(c["ok"] for c in checks),
+        "checks": checks,
+    }
 
 
 @router.get("/games/live")

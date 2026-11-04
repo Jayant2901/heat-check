@@ -37,6 +37,9 @@ class Settings:
     # "live" reads cdn.nba.com; "demo" serves generated sample data (see
     # app/nba/demo.py) so the UI can be built and shown offline.
     data_mode: str = os.getenv("HEAT_CHECK_DATA", "live").strip().lower()
+    # "auto": cdn.nba.com, falling back to ESPN if NBA.com refuses (it
+    # answers 403 to some cloud hosts). "nba" or "espn" pins one source.
+    nba_source: str = os.getenv("NBA_SOURCE", "auto").strip().lower()
     # Each live game being watched costs one poll every poll_interval_seconds
     # against NBA.com; this caps how many can run at once (429 beyond it).
     max_concurrent_live_games: int = int(os.getenv("MAX_CONCURRENT_LIVE_GAMES", "6"))

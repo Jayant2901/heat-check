@@ -93,7 +93,7 @@ async def test_probe_reports_each_endpoint():
 
     client = _client(handler)
     checks = await client.probe()
-    assert [c["name"] for c in checks] == ["scoreboard", "schedule", "boxscore"]
+    assert [c["name"] for c in checks] == ["nba scoreboard", "nba schedule", "nba boxscore"]
     assert checks[0]["ok"] and checks[0]["status"] == 200
     assert checks[1] == {**checks[1], "ok": False, "status": 403, "error": "HTTP 403"}
     assert checks[2]["url"].endswith("boxscore_0022600001.json")

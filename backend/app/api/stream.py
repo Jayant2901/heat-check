@@ -86,7 +86,7 @@ async def _ensure_live_tracking(game_id: str) -> None:
     try:
         board = parse_scoreboard(await client.scoreboard())
     except Exception:
-        raise HTTPException(status_code=503, detail="NBA.com's scoreboard is unreachable right now")
+        raise HTTPException(status_code=503, detail="Live NBA data is unreachable right now")
     if game_id not in {g["game_id"] for g in board["games"]}:
         raise HTTPException(status_code=404, detail="Not one of today's games")
 

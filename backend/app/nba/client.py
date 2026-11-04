@@ -1,7 +1,12 @@
-"""Where NBA data comes from: cdn.nba.com (HttpNbaClient) or generated sample
-data (DemoNbaClient, app/nba/demo.py), picked by settings.data_mode.
+"""Where NBA data comes from, picked by settings:
 
-Only cdn.nba.com is used -- stats.nba.com blocks most cloud hosts.
+- data_mode "demo": generated sample data (DemoNbaClient, app/nba/demo.py).
+- otherwise AutoNbaClient, which uses cdn.nba.com (HttpNbaClient) and falls
+  back to ESPN (EspnNbaClient, app/nba/espn.py) when NBA.com refuses or
+  can't be reached -- cdn.nba.com answers HTTP 403 to some cloud hosts.
+  NBA_SOURCE=nba or NBA_SOURCE=espn pins one source.
+
+stats.nba.com is never used (it blocks most cloud hosts).
 """
 
 import asyncio
@@ -42,6 +47,9 @@ HEADERS = {
 SCOREBOARD_TTL_SECONDS = 10.0
 SCHEDULE_TTL_SECONDS = 30 * 60.0
 RETRIES = 3
+# After NBA.com fails, use the fallback for this long before trying again,
+# so every page load doesn't wait on a request that will be refused.
+PRIMARY_RETRY_AFTER_SECONDS = 600.0
 
 
 class NbaUnavailable(Exception):
@@ -89,6 +97,7 @@ class NbaClient(Protocol):
 
 class HttpNbaClient:
     mode = "live"
+    source = "nba"
 
     def __init__(self, timeout: float = 10.0, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._timeout = timeout
@@ -121,10 +130,16 @@ class HttpNbaClient:
                 return response.json()
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
+                # A refusal (403, 404, ...) won't change on retry; a rate
+                # limit (429), a server error or a network error might.
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status = exc.response.status_code
+                    if 400 <= status < 500 and status != 429:
+                        break
                 if attempt < RETRIES - 1:
                     await asyncio.sleep(0.5 * (2**attempt))
         reason = describe_error(last_error) if last_error else "unknown error"
-        logger.warning("NBA.com fetch failed after %d tries: %s (%s)", RETRIES, url, reason)
+        logger.warning("Fetch failed: %s (%s)", url, reason)
         raise NbaUnavailable(f"Could not fetch {url}: {last_error}", reason) from last_error
 
     async def _cached(self, url: str, ttl: float) -> dict:
@@ -145,33 +160,34 @@ class HttpNbaClient:
             self._cache[url] = (time.monotonic(), data)
             return data
 
+    async def _probe_one(self, name: str, url: str) -> tuple[dict, dict | None]:
+        """One uncached request, reported as {name, url, ok, status, error, ms}."""
+        started = time.monotonic()
+        result = {"name": name, "url": url, "ok": False, "status": None, "error": None}
+        body = None
+        try:
+            response = await self._client().get(url)
+            result["status"] = response.status_code
+            response.raise_for_status()
+            body = response.json()
+            result["ok"] = True
+            result["bytes"] = len(response.content)
+        except Exception as exc:
+            result["error"] = describe_error(exc)
+        result["ms"] = round((time.monotonic() - started) * 1000)
+        return result, body
+
     async def probe(self) -> list[dict]:
         """One uncached request each to the scoreboard, the schedule and one
         boxscore, reporting what came back. Backs /api/nba-check, so a deploy
         can show exactly why NBA.com data isn't loading."""
-
-        async def one(name: str, url: str) -> tuple[dict, dict | None]:
-            started = time.monotonic()
-            result = {"name": name, "url": url, "ok": False, "status": None, "error": None}
-            body = None
-            try:
-                response = await self._client().get(url)
-                result["status"] = response.status_code
-                response.raise_for_status()
-                body = response.json()
-                result["ok"] = True
-                result["bytes"] = len(response.content)
-            except Exception as exc:
-                result["error"] = describe_error(exc)
-            result["ms"] = round((time.monotonic() - started) * 1000)
-            return result, body
-
-        board_result, board = await one("scoreboard", SCOREBOARD_URL)
-        schedule_result, _ = await one("schedule", SCHEDULE_URL)
+        board_result, board = await self._probe_one("nba scoreboard", SCOREBOARD_URL)
+        schedule_result, _ = await self._probe_one("nba schedule", SCHEDULE_URL)
         results = [board_result, schedule_result]
         games = ((board or {}).get("scoreboard") or {}).get("games") or []
         if games:
-            box_result, _ = await one("boxscore", BOXSCORE_URL.format(game_id=games[0].get("gameId")))
+            url = BOXSCORE_URL.format(game_id=games[0].get("gameId"))
+            box_result, _ = await self._probe_one("nba boxscore", url)
             results.append(box_result)
         return results
 
@@ -193,6 +209,70 @@ class HttpNbaClient:
         return NbaLiveDataSource(self.boxscore), settings.poll_interval_seconds
 
 
+class AutoNbaClient:
+    """cdn.nba.com first, ESPN when NBA.com fails.
+
+    Today's scoreboard and the schedule come from whichever source is
+    currently working. After NBA.com fails, the fallback is used for
+    PRIMARY_RETRY_AFTER_SECONDS before NBA.com is tried again. Per-game
+    calls (boxscore, play-by-play, live polling) go to the source the game
+    id belongs to: NBA.com ids start "00", ESPN event ids don't.
+    """
+
+    mode = "live"
+
+    def __init__(self, primary, fallback, prefer: str = "auto") -> None:
+        self.primary = primary
+        self.fallback = fallback
+        self.prefer = prefer
+        self._primary_down_until = 0.0
+        self.active = fallback.source if prefer == fallback.source else primary.source
+
+    @property
+    def source(self) -> str:
+        return self.active
+
+    def _for_id(self, game_id: str):
+        from app.nba.espn import is_espn_id
+
+        return self.fallback if is_espn_id(game_id) else self.primary
+
+    async def _either(self, method: str) -> dict:
+        if self.prefer == self.primary.source:
+            return await getattr(self.primary, method)()
+        if self.prefer == self.fallback.source:
+            return await getattr(self.fallback, method)()
+        if time.monotonic() >= self._primary_down_until:
+            try:
+                data = await getattr(self.primary, method)()
+                self.active = self.primary.source
+                return data
+            except NbaUnavailable as exc:
+                logger.warning("NBA.com %s failed (%s); using ESPN", method, exc.reason)
+                self._primary_down_until = time.monotonic() + PRIMARY_RETRY_AFTER_SECONDS
+        data = await getattr(self.fallback, method)()
+        self.active = self.fallback.source
+        return data
+
+    async def scoreboard(self) -> dict:
+        return await self._either("scoreboard")
+
+    async def schedule(self) -> dict:
+        return await self._either("schedule")
+
+    async def boxscore(self, game_id: str) -> dict:
+        return await self._for_id(game_id).boxscore(game_id)
+
+    async def playbyplay(self, game_id: str) -> dict:
+        return await self._for_id(game_id).playbyplay(game_id)
+
+    def live_source(self, game_id: str) -> tuple[DataSource, float]:
+        return self._for_id(game_id).live_source(game_id)
+
+    async def probe(self) -> list[dict]:
+        return [*await self.primary.probe(), *await self.fallback.probe()]
+
+
 _client: NbaClient | None = None
 
 
@@ -204,5 +284,7 @@ def get_nba_client() -> NbaClient:
 
             _client = DemoNbaClient()
         else:
-            _client = HttpNbaClient()
+            from app.nba.espn import EspnNbaClient
+
+            _client = AutoNbaClient(HttpNbaClient(), EspnNbaClient(), prefer=settings.nba_source)
     return _client

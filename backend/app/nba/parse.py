@@ -113,8 +113,9 @@ def _leader(raw: dict | None) -> dict | None:
         "person_id": raw.get("personId"),
         "name": raw.get("name"),
         "points": _int(raw.get("points")),
-        "rebounds": _int(raw.get("rebounds")),
-        "assists": _int(raw.get("assists")),
+        # None when the source doesn't say (ESPN lists one leader per stat).
+        "rebounds": _int(raw["rebounds"]) if raw.get("rebounds") is not None else None,
+        "assists": _int(raw["assists"]) if raw.get("assists") is not None else None,
     }
 
 

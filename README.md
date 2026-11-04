@@ -42,7 +42,7 @@ pytest
 
 ### Data source
 Two ways:
-- **Live**: NBA.com's public CDN (`cdn.nba.com/static/json/...`), fetched directly with `httpx` (`backend/app/nba/client.py`): today's scoreboard, the season schedule, and per-game boxscore and play-by-play. A followed game's boxscore is polled every ~12s for score, period and clock. These are CDN-served JSON snapshots, not a push feed, so polling is the right approach. `stats.nba.com` is not used (it blocks most cloud hosts).
+- **Live**: NBA.com's public CDN (`cdn.nba.com/static/json/...`), fetched directly with `httpx` (`backend/app/nba/client.py`): today's scoreboard, the season schedule, and per-game boxscore and play-by-play. cdn.nba.com answers HTTP 403 to some cloud hosts (Render included), so when it refuses, the app falls back to ESPN's public site API (`backend/app/nba/espn.py`), translated into the same shapes so the rest of the app is unchanged. `NBA_SOURCE=nba` or `NBA_SOURCE=espn` pins one source. The ESPN mapping was written without access to a live ESPN response; `/api/nba-check` on a deploy shows whether each source works. A followed game's boxscore is polled every ~12s for score, period and clock. These are CDN-served JSON snapshots, not a push feed, so polling is the right approach. `stats.nba.com` is not used (it blocks most cloud hosts).
 - **Historical**: `nba_api`'s stats endpoints (`leaguegamefinder`, `playbyplayv2`/`v3`, `boxscoretraditionalv2`), pulled once per season to train the win-probability model and build the anomaly baseline.
 
 ### Architecture
@@ -70,7 +70,7 @@ A completed historical game can be stepped through the same engine code as a liv
 |---|---|
 | `GET /api/scoreboard` | Today's games (live, then upcoming, then final), with `mode` and whether each is being `tracked`; 503 with a readable message if NBA.com is unreachable |
 | `GET /api/dashboard/week` | `{"status": "building", "progress"}` while the week is being read, then the weekly dashboard payload |
-| `GET /api/nba-check` | Diagnostics: one direct request each to the scoreboard, schedule and a boxscore on cdn.nba.com, with status code, timing and the error if any. Open it on a deploy where the dashboard says NBA.com is unreachable |
+| `GET /api/nba-check` | Diagnostics: direct requests to NBA.com (scoreboard, schedule, a boxscore) and ESPN (scoreboard, a game summary), with status code, timing and the error for each, plus which source is in use. Open it on a deploy where the dashboard says live data is unreachable |
 | `GET /api/model-info` | Held-out model numbers and baseline size, read from the `.meta.json` files |
 | `GET /api/games/live` | Today's game IDs (kept for compatibility; empty list off-season) |
 | `GET /api/games/{game_id}/state` | Non-streaming snapshot of a tracked game |

@@ -132,7 +132,12 @@ function weekPhrases(week) {
 
 function leaderLine(leader) {
   if (!leader) return "";
-  return `${esc(leader.name)} · ${leader.points} pts, ${leader.rebounds} reb, ${leader.assists} ast`;
+  // Rebounds and assists can be null when the data source only names a
+  // points leader (ESPN lists one leader per stat).
+  const parts = [`${leader.points} pts`];
+  if (leader.rebounds != null) parts.push(`${leader.rebounds} reb`);
+  if (leader.assists != null) parts.push(`${leader.assists} ast`);
+  return `${esc(leader.name)} · ${parts.join(", ")}`;
 }
 
 function teamRow(side, game, { showScore, dimmed }) {

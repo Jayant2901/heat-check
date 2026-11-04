@@ -141,7 +141,7 @@ class WeeklyService:
             logger.warning("Weekly build failed", exc_info=True)
             from app.nba.client import describe_error
 
-            self._error = f"Couldn't load this week's games from NBA.com ({describe_error(exc)})."
+            self._error = f"Couldn't load this week's games ({describe_error(exc)})."
             self._error_at = time.monotonic()
 
     async def _analyze(self, game: dict) -> dict:
