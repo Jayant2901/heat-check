@@ -29,6 +29,9 @@
   --n-500: #8f8a86;
   --n-700: #4e4945;
   --n-800: #332f2d;
+  /* The away side of every win-chance graphic: a mid neutral, so neither
+     theme gets a full black or full white block. */
+  --away: #8f8a86;
   --shadow-sm: 0 1px 0 rgb(32 30 29 / 0.06);
   --shadow-md: 0 2px 6px rgb(32 30 29 / 0.06);
   --shadow-lg: 0 6px 18px rgb(32 30 29 / 0.08);
@@ -48,14 +51,17 @@
     --accent-ink: #ff7a63;
     --accent-hover: #ff5f43;
     --on-accent: #161514;
-    --rule: #f1efee;
-    --hairline: #3a3633;
+    /* Softer than full ink: 2px rules in near-white read as white bars on
+       a dark page. */
+    --rule: #5f5955;
+    --hairline: #34302d;
     --n-200: #332f2d;
     --n-300: #4e4945;
     --n-400: #8f8a86;
     --n-500: #b6b2af;
     --n-700: #d3d0ce;
     --n-800: #e3e1e0;
+    --away: #8f8a86;
     --shadow-sm: none;
     --shadow-md: none;
     --shadow-lg: none;
@@ -183,8 +189,8 @@ main:focus {
   left: 16px;
   top: -48px;
   padding: 8px 12px;
-  background: var(--text);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--on-accent);
   z-index: 60;
 }
 
@@ -284,7 +290,7 @@ main:focus {
 
 .sample-banner {
   border-bottom: 2px solid var(--rule);
-  background: var(--surface);
+  background: var(--bg);
   color: var(--text-muted);
   font-size: 0.88rem;
   padding: 10px 0;
@@ -344,8 +350,7 @@ main:focus {
 }
 
 .btn-quiet:hover {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--surface);
 }
 
 .btn-bare {
@@ -530,8 +535,9 @@ main:focus {
 }
 
 .seg-opt:has(input:checked) {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 -3px 0 var(--accent);
 }
 
 .seg-opt:has(input:focus-visible) {
@@ -631,8 +637,8 @@ main:focus {
 
 .marquee {
   overflow: hidden;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--bg);
+  color: var(--text);
   border-top: 2px solid var(--rule);
   border-bottom: 2px solid var(--rule);
 }
@@ -663,8 +669,16 @@ main:focus {
 }
 
 .marquee-item::after {
-  content: "·";
+  content: "■";
   padding: 0 22px;
+  color: var(--accent);
+  font-size: 0.55em;
+  vertical-align: 0.25em;
+}
+
+/* The marquee already draws a rule underneath; don't stack a second one. */
+.marquee + .section {
+  border-top: 0;
 }
 
 @keyframes marquee {
@@ -847,8 +861,9 @@ main:focus {
 }
 
 .tab[aria-selected="true"] {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 -3px 0 var(--accent);
 }
 
 .moment-grid {
@@ -946,7 +961,7 @@ main:focus {
 .progress span {
   display: block;
   height: 100%;
-  background: var(--text);
+  background: var(--away);
   transition: width 0.3s ease;
 }
 
@@ -1195,10 +1210,6 @@ main:focus {
   border-bottom: 1px solid var(--hairline);
 }
 
-.pipe-row:first-child {
-  border-top: 2px solid var(--rule);
-}
-
 .pipe-index {
   font-family: var(--mono);
   font-weight: 700;
@@ -1225,8 +1236,9 @@ main:focus {
 /* ---------------------------------------------------------------- closing poster */
 
 .poster {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--bg);
+  color: var(--text);
+  border-top: 2px solid var(--rule);
   padding: 72px 0 80px;
 }
 
@@ -1399,7 +1411,7 @@ main:focus {
 
 .momentum-bar.is-away {
   right: 50%;
-  background: var(--text);
+  background: var(--away);
 }
 
 .momentum-labels {
@@ -1427,7 +1439,7 @@ main:focus {
 }
 
 .wp-bar-away {
-  background: var(--text);
+  background: var(--away);
   transition: width 0.4s ease;
 }
 
@@ -1516,7 +1528,7 @@ main:focus {
 }
 
 .legend-swatch-away {
-  background: var(--text);
+  background: var(--away);
 }
 
 .legend-tag {
@@ -1537,8 +1549,8 @@ main:focus {
 }
 
 .wp-area-away {
-  fill: var(--text);
-  opacity: 0.12;
+  fill: var(--away);
+  opacity: 0.18;
 }
 
 .wp-line-home,
@@ -1552,7 +1564,7 @@ main:focus {
 }
 
 .wp-line-away {
-  stroke: var(--text);
+  stroke: var(--away);
 }
 
 .wp-latest-home {
@@ -1560,7 +1572,7 @@ main:focus {
 }
 
 .wp-latest-away {
-  fill: var(--text);
+  fill: var(--away);
 }
 
 .wp-latest {
@@ -1569,7 +1581,7 @@ main:focus {
 }
 
 .wp-period {
-  stroke: var(--rule);
+  stroke: var(--n-300);
   stroke-width: 1;
 }
 
@@ -1600,7 +1612,7 @@ main:focus {
 }
 
 .wp-side-away {
-  fill: var(--text);
+  fill: var(--away);
 }
 
 .wp-marker {
