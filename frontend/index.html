@@ -3,97 +3,46 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#f3f2f2" />
-  <title>Heat Check — Live NBA Win Probability</title>
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f6f5f3" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)" />
+  <meta name="description" content="Tonight's NBA games, the week's biggest swings and hottest runs, and a live win-probability chart." />
+  <title>Heat Check</title>
+  <link rel="preload" href="/vendor/fonts/schibsted-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
-  <header class="nav" aria-label="Primary navigation">
-    <a class="nav-brand" href="#top" data-nav="top">HEAT CHECK</a>
-    <nav class="nav-links" aria-label="Sections">
-      <a href="#watch" data-nav="live">Live</a>
-      <a href="#watch" data-nav="replays">Replays</a>
-      <a href="#method" data-nav="method">Method</a>
-    </nav>
-    <button class="btn btn-ghost nav-explainer" type="button" data-nav="method">How it works <span aria-hidden="true">↗</span></button>
+  <a class="skip-link" href="#app">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap site-header-inner">
+      <a class="brand" href="#/">Heat Check</a>
+      <span id="sample-pill" class="pill pill-sample" hidden>Sample data</span>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="#/">Dashboard</a>
+        <a href="#/?section=how">How it works</a>
+      </nav>
+    </div>
   </header>
 
-  <main id="lobby-view">
-    <section id="top" class="hero" aria-labelledby="hero-title">
-      <div class="page-grid hero-grid">
-        <div class="hero-copy">
-          <p class="eyebrow"><span class="eyebrow-bar" aria-hidden="true"></span>Live NBA win probability</p>
-          <h1 id="hero-title">Every run has a <span>temperature.</span></h1>
-          <p class="hero-body">Watch any NBA game, live or replayed, and see each team's chance of winning update in real time — with unusual scoring streaks called out automatically.</p>
-          <div class="hero-actions">
-            <button class="btn btn-primary" type="button" data-nav="replays">Watch a replay <span aria-hidden="true">→</span></button>
-            <button class="btn btn-ghost" type="button" data-nav="method">How does it work?</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="explainer page-grid" aria-labelledby="explainer-title">
-      <div class="explainer-card card elev-md">
-        <p class="card-kicker">What is Heat Check?</p>
-        <h2 id="explainer-title">A live scoreboard that also tells you who's likely to win — and when a team is playing better than they realistically should be.</h2>
-        <div class="explainer-grid">
-          <article><span>1</span><p>As a game happens, Heat Check follows along in real time, just like a scoreboard — score, quarter, and clock.</p></article>
-          <article><span>2</span><p>After every basket, it recalculates each team's odds of winning based on the score, time left, and quarter.</p></article>
-          <article><span>3</span><p>When a team goes on a scoring streak, it compares that streak to thousands of real ones from past games — if it's genuinely rare, it flags it as a "heat check."</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="marquee" aria-label="Heat Check capabilities">
-      <div class="marquee-track"><span>Heat check · Unusual run flagged automatically · Win probability updates live · Replay any classic game · Heat check · Flagged in 13 seconds ·</span><span aria-hidden="true">Heat check · Unusual run flagged automatically · Win probability updates live · Replay any classic game · Heat check · Flagged in 13 seconds ·</span></div>
-    </section>
-
-    <section class="section page-grid" data-reveal>
-      <p class="section-index"><span>01</span> Evidence</p>
-      <h2>What it was built on.</h2>
-      <div class="metrics-grid" aria-label="Project evidence">
-        <article class="metric"><strong data-count="3941" data-suffix="">0</strong><span>Real games analyzed</span></article>
-        <article class="metric"><strong data-count="33761" data-suffix="">0</strong><span>Real scoring streaks studied</span></article>
-        <article class="metric"><strong data-count="96" data-suffix="%">0</strong><span>Accuracy predicting the final winner</span></article>
-        <article class="metric"><strong data-count="12" data-suffix="s">0</strong><span>Seconds from live update to your screen</span></article>
-      </div>
-    </section>
-
-    <section id="method" class="section page-grid method-section" data-reveal>
-      <p class="section-index"><span>02</span> Method</p>
-      <h2>How it works.</h2>
-      <div class="pipeline">
-        <article><span>01</span><h3>Watch</h3><p>Every twelve seconds, Heat Check checks the score, quarter and clock — the same info you'd see on any scoreboard.</p></article>
-        <article><span>02</span><h3>Predict</h3><p>That info is fed into a model that recalculates each team's odds of winning, updated after every basket.</p></article>
-        <article><span>03</span><h3>Flag</h3><p>If a scoring streak is rare compared to thousands of real streaks from past games, it stops being ordinary momentum and gets flagged as a heat check.</p></article>
-      </div>
-    </section>
-
-    <section id="watch" class="section page-grid watch-section" data-reveal>
-      <p class="section-index"><span>03</span> Watch</p>
-      <h2>Watch a game.</h2>
-      <div id="game-picker" aria-live="polite"></div>
-    </section>
-  </main>
-
-  <main id="game-view" hidden>
-    <div class="page-grid game-page">
-      <button id="back-to-games" class="btn btn-ghost back-button" type="button">← Back to games</button>
-      <section id="matchup-header" class="scoreboard card elev-lg" aria-live="polite"><p class="empty-state">Preparing game view…</p></section>
-      <section class="chart-card card elev-md" aria-labelledby="chart-title">
-        <div class="chart-header"><div><p class="card-kicker">Updated after every basket</p><h2 id="chart-title">Who's likely to win</h2></div><p id="chart-tooltip" class="chart-tooltip" aria-live="polite">This line tracks each team's chance of winning as the game plays out.</p></div>
-        <div id="worm-chart"></div>
-        <div id="chart-legend" class="chart-legend"><span class="legend-home"><i></i>HOME</span><span class="legend-away"><i></i>AWAY</span></div>
-      </section>
-      <section id="anomaly-feed" class="heat-feed card elev-sm" aria-labelledby="heat-title">
-        <div class="feed-header"><div><p class="card-kicker">Run monitor</p><h2 id="heat-title">Heat checks</h2></div><span class="tag tag-outline">Latest first</span></div>
-        <p class="empty-state">No heat checks yet.</p>
-      </section>
+  <div id="sample-banner" class="sample-banner" role="note" hidden>
+    <div class="wrap">
+      You're looking at generated sample data: the players are fictional and the
+      "live" games are archived replays. Start the server without
+      <code>HEAT_CHECK_DATA=demo</code> for real NBA.com data.
     </div>
-  </main>
+  </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+  <main id="app" class="wrap" tabindex="-1"></main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      Scores and play-by-play from cdn.nba.com. Not affiliated with the NBA.
+      Win chances are a model's estimate, not a prediction you should bet on.
+    </div>
+  </footer>
+
+  <script src="/vendor/d3.min.js" defer></script>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

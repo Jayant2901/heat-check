@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from app.core.game_state import game_state_store
+from app.core.interfaces import GameSnapshot
 from app.datasources.replay_source import ReplaySource
 from app.polling.poller import PollerManager
 from app.sse.broadcaster import broadcaster
@@ -84,3 +85,49 @@ async def test_starting_an_already_tracked_key_is_a_no_op(tmp_path):
     finally:
         manager.stop("T2")
         game_state_store.remove("T2")
+
+
+class _ForeverLive:
+    """A live source that never finishes, like a game in progress."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def next_snapshot(self, game_id):
+        self.calls += 1
+        return GameSnapshot(
+            game_id=game_id, period=2, game_clock_seconds_remaining=300.0, home_team="HOM",
+            away_team="AWY", home_score=50, away_score=48, game_status="live",
+        )
+
+
+@pytest.mark.asyncio
+async def test_idle_live_poller_stops_itself():
+    manager = PollerManager()
+    try:
+        manager.start("IDLE1", _ForeverLive(), FakeModel(), EMPTY_BASELINE, 0.01, "IDLE1", idle_stop_seconds=0.05)
+        for _ in range(100):
+            if not manager.is_active("IDLE1"):
+                break
+            await asyncio.sleep(0.01)
+        assert not manager.is_active("IDLE1")
+        assert game_state_store.get("IDLE1") is None
+    finally:
+        manager.stop("IDLE1")
+        game_state_store.remove("IDLE1")
+
+
+@pytest.mark.asyncio
+async def test_watched_live_poller_keeps_running():
+    manager = PollerManager()
+    source = _ForeverLive()
+    queue = broadcaster.subscribe("WATCHED1")
+    try:
+        manager.start("WATCHED1", source, FakeModel(), EMPTY_BASELINE, 0.01, "WATCHED1", idle_stop_seconds=0.05)
+        await asyncio.sleep(0.25)  # 5x the idle limit
+        assert manager.is_active("WATCHED1")
+        assert source.calls > 5
+    finally:
+        broadcaster.unsubscribe("WATCHED1", queue)
+        manager.stop("WATCHED1")
+        game_state_store.remove("WATCHED1")

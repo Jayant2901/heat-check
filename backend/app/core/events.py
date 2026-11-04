@@ -14,6 +14,9 @@ class WPUpdateEvent:
     away_score: int
     wp_home: float
     wp_away: float
+    # "scheduled" | "live" | "final" -- lets the game page tell a pre-game
+    # snapshot from a live one.
+    status: str = "live"
 
 
 @dataclass(frozen=True)

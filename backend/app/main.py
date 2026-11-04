@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import games, replay, stream
+from app.api import dashboard, games, replay, stream
 from app.core.artifacts import get_baseline, get_model
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -34,6 +34,7 @@ app.add_middleware(
 app.include_router(games.router)
 app.include_router(stream.router)
 app.include_router(replay.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/health")

@@ -1,8 +1,11 @@
 """SSE endpoint for both live games and replay sessions.
 
-A live game_id is auto-tracked on its first /stream connection (v1 has no
+A live game_id is auto-tracked on its first /stream connection (there is no
 separate "start tracking" call -- opening the stream is what starts the
-poller), enforcing the one-live-game-at-a-time restriction. A replay
+poller). The id must be one of today's games on the scoreboard (404
+otherwise), and at most MAX_CONCURRENT_LIVE_GAMES live pollers run at once
+(429 beyond that). A live poller stops itself after LIVE_IDLE_STOP_SECONDS
+with no viewers. A replay
 session's key only exists once POST /api/replays/{game_id}/start has
 created it (app/api/replay.py), so /stream never auto-starts one of those --
 it either finds the session or 404s.
@@ -18,7 +21,8 @@ from app.core.artifacts import get_baseline, get_model
 from app.core.config import settings
 from app.core.events import to_sse_payload
 from app.core.game_state import game_state_store
-from app.datasources.nba_live import NbaLiveDataSource
+from app.nba.client import get_nba_client
+from app.nba.parse import parse_scoreboard
 from app.polling.poller import poller_manager
 from app.sse.broadcaster import broadcaster
 
@@ -75,22 +79,34 @@ def _already_in_backlog(event, last_backlog_t: float) -> bool:
     return event_t is not None and event_t <= last_backlog_t
 
 
-def _ensure_live_tracking(game_id: str) -> None:
+async def _ensure_live_tracking(game_id: str) -> None:
+    if poller_manager.is_active(game_id):
+        return
+    client = get_nba_client()
+    try:
+        board = parse_scoreboard(await client.scoreboard())
+    except Exception:
+        raise HTTPException(status_code=503, detail="NBA.com's scoreboard is unreachable right now")
+    if game_id not in {g["game_id"] for g in board["games"]}:
+        raise HTTPException(status_code=404, detail="Not one of today's games")
+
     active_live = [k for k in poller_manager.active_keys() if not k.startswith("replay:")]
-    if active_live and game_id not in active_live:
+    if len(active_live) >= settings.max_concurrent_live_games:
         raise HTTPException(
-            status_code=409,
-            detail=f"Already tracking {active_live[0]} live; v1 supports one live game at a time",
+            status_code=429,
+            detail=f"Already following {len(active_live)} live games (max {settings.max_concurrent_live_games}); "
+            "try again shortly",
         )
-    if not poller_manager.is_active(game_id):
-        poller_manager.start(
-            game_id,
-            NbaLiveDataSource(),
-            get_model(),
-            get_baseline(),
-            settings.poll_interval_seconds,
-            source_game_id=game_id,
-        )
+    source, interval = client.live_source(game_id)
+    poller_manager.start(
+        game_id,
+        source,
+        get_model(),
+        get_baseline(),
+        interval,
+        source_game_id=game_id,
+        idle_stop_seconds=settings.live_idle_stop_seconds,
+    )
 
 
 @router.get("/{game_id}/stream")
@@ -104,7 +120,7 @@ async def stream_game(game_id: str, request: Request):
                 status_code=404,
                 detail="No such replay session -- start one via POST /api/replays/{game_id}/start",
             )
-        _ensure_live_tracking(game_id)
+        await _ensure_live_tracking(game_id)
         state = game_state_store.get_or_create(game_id)
 
     async def event_generator():

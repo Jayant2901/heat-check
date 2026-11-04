@@ -10,10 +10,16 @@ live game it's the real NBA game_id; for a replay session it's a namespaced
 session without colliding. "source_game_id" is what gets passed to
 DataSource.next_snapshot() -- the real game_id for live, ignored by
 ReplaySource but still the real game_id for clarity.
+
+A live poller is started by the first /stream connection and would otherwise
+keep polling NBA.com until the game ends, viewers or not. Passing
+idle_stop_seconds makes it stop itself once nobody has been subscribed for
+that long; the next viewer simply starts a fresh one.
 """
 
 import asyncio
 import logging
+import time
 
 from app.core.config import settings
 from app.core.engine import process_tick
@@ -45,11 +51,12 @@ class PollerManager:
         baseline,
         interval_seconds: float,
         source_game_id: str,
+        idle_stop_seconds: float | None = None,
     ) -> None:
         if key in self._tasks:
             return
         self._tasks[key] = asyncio.create_task(
-            self._run(key, source, model, baseline, interval_seconds, source_game_id)
+            self._run(key, source, model, baseline, interval_seconds, source_game_id, idle_stop_seconds)
         )
 
     def stop(self, key: str) -> None:
@@ -65,11 +72,20 @@ class PollerManager:
         baseline,
         interval_seconds: float,
         source_game_id: str,
+        idle_stop_seconds: float | None = None,
     ) -> None:
         state = game_state_store.get_or_create(key)
         consecutive_failures = 0
+        last_watched = time.monotonic()
         try:
             while True:
+                if idle_stop_seconds is not None:
+                    now = time.monotonic()
+                    if broadcaster.subscriber_count(key) > 0:
+                        last_watched = now
+                    elif now - last_watched >= idle_stop_seconds:
+                        logger.info("Stopping %s: no viewers for %.0fs", key, idle_stop_seconds)
+                        break
                 try:
                     snapshot = await source.next_snapshot(source_game_id)
                 except Exception:

@@ -1,15 +1,8 @@
 import json
 
-from fastapi.testclient import TestClient
-
 from app.api.stream import _already_in_backlog, _backlog_events
 from app.core.events import DegradedEvent, GameEndEvent, WPUpdateEvent
 from app.core.game_state import AnomalyEvent, GameState, ScoreHistoryPoint
-from app.main import app
-from app.polling.poller import poller_manager
-
-client = TestClient(app)
-
 
 def test_backlog_events_replays_score_history_then_anomalies():
     state = GameState(game_id="T1")
@@ -56,14 +49,3 @@ def test_already_in_backlog_drops_events_at_or_before_the_cutoff():
 def test_already_in_backlog_never_drops_events_without_a_t():
     assert _already_in_backlog(GameEndEvent(type="game_end", final_home_score=1, final_away_score=0, winner="HOM"), 999) is False
     assert _already_in_backlog(DegradedEvent(type="degraded", reason="test"), 999) is False
-
-
-def test_second_live_game_conflicts_with_an_already_tracked_one():
-    # Simulate an already-active live poller without spinning up real
-    # network calls -- is_active()/active_keys() only check dict membership.
-    poller_manager._tasks["0000000001"] = object()
-    try:
-        resp = client.get("/api/games/0000000002/stream")
-        assert resp.status_code == 409
-    finally:
-        del poller_manager._tasks["0000000001"]

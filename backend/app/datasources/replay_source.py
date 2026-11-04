@@ -15,10 +15,10 @@ from app.core.interfaces import GameSnapshot
 
 
 class ReplaySource:
-    def __init__(self, fixture_path: Path):
+    def __init__(self, fixture_path: Path, start_index: int = 0):
         data = json.loads(Path(fixture_path).read_text())
         self._snapshots = [GameSnapshot(**s) for s in data["snapshots"]]
-        self._index = 0
+        self._index = max(0, min(start_index, len(self._snapshots) - 1))
 
     @property
     def finished(self) -> bool:

@@ -28,6 +28,9 @@ class Broadcaster:
         if not subs:
             self._subscribers.pop(game_id, None)
 
+    def subscriber_count(self, game_id: str) -> int:
+        return len(self._subscribers.get(game_id, ()))
+
     def publish(self, game_id: str, event) -> None:
         for queue in self._subscribers.get(game_id, ()):
             queue.put_nowait(event)
