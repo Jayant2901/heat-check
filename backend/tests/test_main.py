@@ -50,6 +50,7 @@ def test_scoreboard_is_503_when_nba_is_unreachable(monkeypatch):
     resp = client.get("/api/scoreboard")
     assert resp.status_code == 503
     assert "unreachable" in resp.json()["detail"]
+    assert "RuntimeError" in resp.json()["detail"]  # says why, not just that it failed
 
 
 def test_unknown_game_state_is_404():

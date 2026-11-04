@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app.core.game_state import game_state_store
-from app.nba.client import get_nba_client
+from app.nba.client import describe_error, get_nba_client
 from app.nba.parse import parse_scoreboard
 from app.polling.poller import poller_manager
 
@@ -11,7 +11,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["games"])
 
-UNREACHABLE = "NBA.com's scoreboard is unreachable right now. Try again in a minute."
+
+def unreachable(exc: BaseException) -> str:
+    return f"NBA.com's scoreboard is unreachable right now ({describe_error(exc)}). Try again in a minute."
 
 
 async def todays_scoreboard() -> dict:
@@ -29,12 +31,23 @@ async def get_scoreboard():
     client = get_nba_client()
     try:
         board = await todays_scoreboard()
-    except Exception:
+    except Exception as exc:
         logger.warning("Scoreboard fetch failed", exc_info=True)
-        raise HTTPException(status_code=503, detail=UNREACHABLE)
+        raise HTTPException(status_code=503, detail=unreachable(exc))
     for game in board["games"]:
         game["tracked"] = poller_manager.is_active(game["game_id"])
     return {"mode": client.mode, **board}
+
+
+@router.get("/nba-check")
+async def nba_check():
+    """Diagnostics: can this server reach cdn.nba.com, and what does it say?
+    Open it in a browser on a deploy where the dashboard shows "unreachable"."""
+    client = get_nba_client()
+    if not hasattr(client, "probe"):
+        return {"mode": client.mode, "note": "Demo mode does not contact NBA.com.", "checks": []}
+    checks = await client.probe()
+    return {"mode": client.mode, "ok": all(c["ok"] for c in checks), "checks": checks}
 
 
 @router.get("/games/live")

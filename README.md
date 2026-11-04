@@ -70,6 +70,7 @@ A completed historical game can be stepped through the same engine code as a liv
 |---|---|
 | `GET /api/scoreboard` | Today's games (live, then upcoming, then final), with `mode` and whether each is being `tracked`; 503 with a readable message if NBA.com is unreachable |
 | `GET /api/dashboard/week` | `{"status": "building", "progress"}` while the week is being read, then the weekly dashboard payload |
+| `GET /api/nba-check` | Diagnostics: one direct request each to the scoreboard, schedule and a boxscore on cdn.nba.com, with status code, timing and the error if any. Open it on a deploy where the dashboard says NBA.com is unreachable |
 | `GET /api/model-info` | Held-out model numbers and baseline size, read from the `.meta.json` files |
 | `GET /api/games/live` | Today's game IDs (kept for compatibility; empty list off-season) |
 | `GET /api/games/{game_id}/state` | Non-streaming snapshot of a tracked game |
