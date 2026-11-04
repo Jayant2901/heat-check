@@ -37,10 +37,25 @@ app.include_router(replay.router)
 app.include_router(dashboard.router)
 
 
+class FrontendFiles(StaticFiles):
+    """Static files that browsers must revalidate before reuse.
+
+    Without a Cache-Control header browsers cache these heuristically, so
+    after a deploy a visitor can get the new index.html with an old
+    styles.css/main.js and an empty page. "no-cache" still allows the cached
+    copy, but only after a cheap ETag check (304) confirms it is current.
+    """
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
 if FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+    app.mount("/", FrontendFiles(directory=FRONTEND_DIR, html=True), name="frontend")

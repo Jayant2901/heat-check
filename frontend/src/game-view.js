@@ -5,7 +5,9 @@ import { api, explainStreamFailure, liveStreamUrl } from "./api.js";
 import { clockText, fromElapsed, percent } from "./format.js";
 import { connectStream } from "./sse-client.js";
 import { badge, esc, matchupColors, teamName } from "./teams.js";
-import { createWormChart } from "./worm-chart.js";
+// "?v=2": worm-chart.js existed before the redesign; the query string makes
+// browsers that cached the old version fetch the new one.
+import { createWormChart } from "./worm-chart.js?v=2";
 
 const CHART_CAPTION = "Above the line the home team is favoured, below it the away team. Markers are flagged runs.";
 const MAX_HEAT_CHECKS = 20;

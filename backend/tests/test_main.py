@@ -55,3 +55,10 @@ def test_scoreboard_is_503_when_nba_is_unreachable(monkeypatch):
 def test_unknown_game_state_is_404():
     resp = client.get("/api/games/nonexistent/state")
     assert resp.status_code == 404
+
+
+def test_frontend_files_must_be_revalidated():
+    for path in ("/", "/src/main.js", "/src/styles.css"):
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        assert resp.headers["cache-control"] == "no-cache", path

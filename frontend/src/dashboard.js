@@ -475,7 +475,7 @@ export function renderDashboard(root, { section, onMode }) {
       renderTonight($("tonight-body"), $("tonight-meta"), board);
     } catch (error) {
       if (!alive) return;
-      $("tonight-body").innerHTML = `<p class="notice">${esc(error.message)} Retrying in a few seconds.</p>`;
+      $("tonight-body").innerHTML = `<p class="notice">${esc(error.message)}</p>`;
     }
     later(loadScoreboard, SCOREBOARD_REFRESH_MS);
   }
