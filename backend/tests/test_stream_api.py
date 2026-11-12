@@ -115,6 +115,7 @@ async def test_late_joiner_gets_the_whole_game_exactly_once(api):
     assert _ids(events) == list(range(1, 43))  # contiguous: nothing lost, nothing twice
     first = json.loads(next(e for e in events if e.get("event") == "wp_update")["data"])
     assert {"run", "period", "clock", "wp_away", "fidelity", "server_ts"} <= set(first)  # backlog == live shape
+    assert first["backlog"] is True
 
 
 @pytest.mark.asyncio
@@ -129,6 +130,9 @@ async def test_backlog_to_live_hand_off_loses_nothing_and_repeats_nothing(api):
     events = parse_sse(response.text)
     ids = _ids(events)
     assert ids == list(range(1, 123))
+    flags = [json.loads(e["data"])["backlog"] for e in events if "event" in e]
+    assert flags[0] is True and flags[-1] is False  # history first, then plays that happened while connected
+    assert flags == sorted(flags, reverse=True)  # never live-then-history
     assert [e["event"] for e in events if "event" in e][-1] == "game_end"
 
 

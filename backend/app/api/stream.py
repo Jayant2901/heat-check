@@ -53,9 +53,13 @@ SSE_HEADERS = {
 }
 
 
-def event_to_sse(event) -> dict:
+def event_to_sse(event, backlog: bool = False) -> dict:
+    """An event as an SSE message. `backlog` marks history replayed to a new
+    or reconnecting viewer, so the page can draw it quietly (no toasts) and
+    never mistake it for a play that just happened."""
     payload = to_sse_payload(event)
     kind = payload.pop("type")
+    payload["backlog"] = backlog
     message = {"event": kind, "data": json.dumps(payload)}
     if payload.get("seq"):
         message["id"] = str(payload["seq"])
@@ -164,7 +168,7 @@ async def stream_game(game_id: str, request: Request):
                 backlog, last_seq = backlog_for(state, last_event_id)
                 yield ServerSentEvent(data=None, retry=settings.sse_retry_ms)
                 for event in backlog:
-                    yield event_to_sse(event)
+                    yield event_to_sse(event, backlog=True)
                 if state.status == "final" and any(e.type == "game_end" for e in state.log):
                     return  # a finished game: game_end has been delivered (or the client already has it)
 

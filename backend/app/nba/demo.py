@@ -16,7 +16,7 @@ from datetime import datetime, time, timedelta, timezone
 from functools import lru_cache
 
 from app.core.config import REPLAY_FIXTURES_DIR, settings
-from app.core.interfaces import DataSource, GameSnapshot
+from app.core.interfaces import DataSource, GameSnapshot, PollInfo
 from app.datasources.replay_source import ReplaySource
 from app.nba.weekly import eastern_today
 
@@ -189,6 +189,31 @@ def _live_start_index(game_id: str) -> int:
     return int(len(snapshots) * (0.45 + 0.25 * n))
 
 
+class _DemoLiveSource(ReplaySource):
+    """A demo "live" game: like the real play-by-play source, its first poll
+    returns everything that has already happened (the fixture up to where the
+    game 'is' now), then it plays the rest out one step at a time. That lets
+    the offline demo show what a late viewer sees: the full chart and every
+    heat check so far."""
+
+    backfills = True
+
+    def __init__(self, fixture_path, start_index: int) -> None:
+        super().__init__(fixture_path)
+        self._now = max(1, start_index)
+        self._first = True
+        self.last_poll = PollInfo(backfill=True)
+
+    async def next_snapshots(self, game_id: str) -> list[GameSnapshot] | None:
+        if self._first:
+            self._first = False
+            self._index = self._now
+            self.last_poll = PollInfo(backfill=True, new_actions=self._now)
+            return self._snapshots[: self._now]
+        self.last_poll = PollInfo(backfill=False, new_actions=1)
+        return await super().next_snapshots(game_id)
+
+
 class _PregameSource:
     """Always reports the same scheduled 0-0 snapshot."""
 
@@ -328,7 +353,7 @@ class DemoNbaClient:
     def live_source(self, game_id: str, teams=None) -> tuple[DataSource, float]:
         if game_id in LIVE_GAMES:
             path = REPLAY_FIXTURES_DIR / f"{LIVE_GAMES[game_id]}.json"
-            return ReplaySource(path, start_index=_live_start_index(game_id)), settings.poll_interval_seconds / REPLAY_SPEED
+            return _DemoLiveSource(path, _live_start_index(game_id)), settings.poll_interval_seconds / REPLAY_SPEED
         if game_id in SCHEDULED_GAMES:
             home, away, _ = SCHEDULED_GAMES[game_id]
             return _PregameSource(game_id, home, away), settings.poll_interval_seconds
