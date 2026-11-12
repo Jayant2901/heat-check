@@ -1260,25 +1260,6 @@ main:focus {
   }
 }
 
-/* ---------------------------------------------------------------- closing poster */
-
-.poster {
-  background: var(--bg);
-  color: var(--text);
-  border-top: 2px solid var(--rule);
-  padding: 72px 0 80px;
-}
-
-.poster p {
-  width: min(1240px, 100% - 32px);
-  margin-inline: auto;
-  font-size: clamp(2rem, 7vw, 5rem);
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: -0.035em;
-  line-height: 0.9;
-}
-
 /* ---------------------------------------------------------------- reveal */
 
 .reveal-pending {

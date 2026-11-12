@@ -1,6 +1,5 @@
 // The dashboard: hero, marquee, tonight's games, this week (moments,
-// results, best performances), replays, how the numbers work, and a
-// closing poster.
+// results, best performances), replays, and how the numbers work.
 
 import { api } from "./api.js";
 import { duration, localTime, percent, prefersReducedMotion, shortDate } from "./format.js";
@@ -107,10 +106,6 @@ function layout() {
     <section class="section" id="how" aria-labelledby="how-title">
       ${sectionHead("04", "how-title", "How the numbers work")}
       <div id="how-body" data-reveal><p class="muted">Loading…</p></div>
-    </section>
-
-    <section class="poster bleed" aria-label="Closing">
-      <p>Momentum is a feeling. <span class="accent">Sigma is a number.</span></p>
     </section>`;
 }
 
