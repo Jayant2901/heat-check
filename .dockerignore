@@ -1,0 +1,17 @@
+# Keep the build context (and the image) to what the running app needs.
+.git
+.github
+.venv
+.pytest_cache
+**/__pycache__
+**/*.pyc
+.env
+*.log
+data/raw
+data/processed
+data/backtest_cache
+backend/tests
+backend/historical
+scripts
+README.md
+ARCHITECTURE.md

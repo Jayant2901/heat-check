@@ -307,3 +307,49 @@ def test_real_summary_play_by_play_translates():
 
     events = scoring_events(pbp)
     assert len(events) == 100 and (events[-1].home_score, events[-1].away_score) == (93, 98)
+
+
+# -- the real ESPN client -> live source, over a mock transport serving real captures --
+
+
+def _espn_transport(summary_name):
+    body = (_FIXTURES / summary_name).read_text()
+
+    def handler(request):
+        assert "/summary" in str(request.url)
+        return httpx.Response(200, content=body, headers={"content-type": "application/json"})
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_espn_live_source_reads_a_real_finished_game_through_the_client():
+    from app.datasources.nba_live import PlayByPlayLiveSource
+
+    client = EspnNbaClient(transport=_espn_transport("espn_summary_401909968.json"), today=lambda: date(2026, 11, 12))
+    source, interval = client.live_source("401909968", ("TOR", "BOS"))
+    assert isinstance(source, PlayByPlayLiveSource)
+    assert interval >= 5.0  # ESPN's whole-game summary is polled less often than NBA.com's feed
+    snaps = await source.next_snapshots("401909968")
+    assert (snaps[-1].home_team, snaps[-1].home_score, snaps[-1].away_score, snaps[-1].game_status) == ("TOR", 93, 98, "final")
+    assert source.last_poll.backfill and source.last_poll.new_actions == 495
+    assert await source.next_snapshots("401909968") == []  # nothing new, nothing repeated
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_espn_live_source_handles_a_real_game_that_has_not_started():
+    client = EspnNbaClient(transport=_espn_transport("espn_summary_pregame_401909976.json"), today=lambda: date(2026, 11, 12))
+    source, _ = client.live_source("401909976", ("PHI", "TOR"))
+    snaps = await source.next_snapshots("401909976")
+    assert [(s.game_status, s.period, s.home_score, s.away_score) for s in snaps] == [("scheduled", 0, 0, 0)]
+    assert snaps[0].home_team and snaps[0].away_team
+    assert await source.next_snapshots("401909976") == []
+    assert source.fidelity == "play_by_play"  # a missing feed before tip-off is not a fallback
+    await client.aclose()
+
+
+def test_real_pregame_summary_translates_to_a_scheduled_boxscore():
+    box = espn.translate_boxscore(_real("espn_summary_pregame_401909976.json"), "401909976")
+    assert box["game"]["gameStatus"] == 1
+    assert espn.translate_playbyplay(_real("espn_summary_pregame_401909976.json"), "401909976")["game"]["actions"] == []

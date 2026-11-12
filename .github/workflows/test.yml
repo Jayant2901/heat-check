@@ -21,3 +21,28 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  image:
+    # The runtime image is what actually gets deployed: build it from a clean
+    # checkout, start it in demo mode (no network needed) and hit it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t heat-check .
+
+      - name: Start it and check it serves
+        run: |
+          docker run -d --name hc -p 8000:8000 -e HEAT_CHECK_DATA=demo -e PREWARM_WEEK=0 heat-check
+          for i in $(seq 1 30); do curl -sf localhost:8000/health && break || sleep 2; done
+          curl -sf localhost:8000/health
+          curl -sf localhost:8000/api/model-info > /dev/null
+          curl -sf localhost:8000/ > /dev/null
+          curl -sf localhost:8000/vendor/d3.min.js > /dev/null
+          curl -sf localhost:8000/vendor/fonts/archivo-latin-wght-normal.woff2 > /dev/null
+          curl -sf -X POST "localhost:8000/api/replays/0022301034/start?speed=500" > /dev/null
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker logs hc

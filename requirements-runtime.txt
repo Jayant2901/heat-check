@@ -1,6 +1,9 @@
+# What the running app imports (the Docker image installs only this file).
+# nba_api, requests and python-dotenv are not here: the app talks to NBA.com
+# and ESPN with httpx, and nba_api is only used by the offline pipeline in
+# backend/historical/ (see requirements.txt for the full development set).
 fastapi==0.141.1
 uvicorn==0.52.4
-nba_api==1.11.4
 pandas==3.0.5
 numpy==2.5.2
 scikit-learn==1.7.2
@@ -8,7 +11,5 @@ scipy==1.18.1
 joblib==1.5.2
 pyarrow==19.0.1
 sse-starlette==2.4.1
-pydantic==2.13.5
-python-dotenv==1.2.3
-requests==2.34.2
 httpx==0.28.1
+pydantic==2.13.5

@@ -12,6 +12,8 @@ reads). Nothing was edited or invented.
 * `espn_scoreboard_pre.json` -- two games not yet started.
 * `espn_summary_401909968.json` -- the finished BOS @ TOR game's summary:
   boxscore players and all 495 plays.
+* `espn_summary_pregame_401909976.json` -- the TOR @ PHI summary before tip-off:
+  no `plays` key at all, no player stats.
 
 There is **no** real `cdn.nba.com` payload here: that host answers 403 to the
 environment this was written in, so `boxscore_real.json` (what

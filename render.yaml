@@ -5,3 +5,12 @@ services:
     dockerfilePath: ./Dockerfile
     plan: free
     healthCheckPath: /health
+    # Every variable the app reads is documented in the README ("Configuration").
+    # Only the ones worth pinning on a deploy are listed here.
+    envVars:
+      - key: NBA_SOURCE
+        value: auto        # cdn.nba.com first, ESPN if it refuses this host; "nba" or "espn" pins one
+      - key: LIVE_POLL_INTERVAL_SECONDS
+        value: "3"
+      - key: LOG_FORMAT
+        value: json
