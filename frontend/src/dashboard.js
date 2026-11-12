@@ -24,7 +24,7 @@ const GENERIC_MARQUEE = [
   "Heat check",
   "Win probability, live",
   "Unusual runs flagged automatically",
-  "Box score read every 12 seconds",
+  "Play-by-play read every few seconds",
   "Replay a classic game",
 ];
 
@@ -57,7 +57,7 @@ function layout() {
       <p class="eyebrow"><span class="eyebrow-bar" aria-hidden="true"></span>Live NBA win probability</p>
       <h1 class="hero-title" id="hero-title">Every run has a <span class="accent">temperature</span></h1>
       <p class="lede">
-        Any broadcast can tell you a team is on an 8-0 run. This z-scores that run against three seasons
+        Any broadcast can tell you a team is on an 8-0 run. Heat Check compares that run with three seasons
         of real ones and tells you whether it is actually unusual.
       </p>
       <div class="hero-actions">

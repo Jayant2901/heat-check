@@ -1,7 +1,7 @@
 """Finds a finished game's notable moments from its play-by-play.
 
-Unlike the live engine (which only sees a boxscore every 12 s), a finished
-game's play-by-play gives every scoring play with its exact clock, so:
+A finished game's play-by-play gives every scoring play with its exact clock
+(the live engine now reads the same play-by-play as it is written), so:
 
 - **swings** are the single plays that moved win probability the most. Each
   play's "before" and "after" probabilities are computed at the same clock

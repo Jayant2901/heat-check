@@ -405,7 +405,7 @@ class EspnNbaClient(HttpNbaClient):
     async def _summary(self, event_id: str) -> dict:
         # boxscore() and playbyplay() read the same summary, and the weekly
         # build asks for both at once; a short cache makes that one request
-        # (and stays fresh enough for live polling every 12 s).
+        # (live polling does not use this cache: see playbyplay_feed).
         return await self._cached(SUMMARY_URL.format(event_id=event_id), SUMMARY_TTL_SECONDS)
 
     async def boxscore(self, game_id: str) -> dict:
