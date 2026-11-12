@@ -1644,12 +1644,18 @@ main:focus {
 
 .wp-marker {
   cursor: pointer;
+  outline: none;
 }
 
 .wp-marker-rule {
   stroke: var(--accent);
   stroke-width: 1.5;
   stroke-dasharray: 3 3;
+  opacity: 0.55;
+}
+
+.wp-marker-hit {
+  fill: transparent;
 }
 
 .wp-marker-dot {
@@ -1658,13 +1664,50 @@ main:focus {
   stroke-width: 2;
 }
 
-.wp-marker:focus {
-  outline: none;
+/* Away-side runs are ink, like the away side of the chart. */
+.wp-marker-away .wp-marker-dot {
+  fill: var(--text);
+}
+
+.wp-marker-away .wp-marker-rule {
+  stroke: var(--text);
+}
+
+.wp-marker-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  font-family: var(--mono);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
 .wp-marker:focus-visible .wp-marker-dot,
 .wp-marker:hover .wp-marker-dot {
   stroke: var(--text);
+}
+
+.wp-marker:hover .wp-marker-rule,
+.wp-marker:focus-visible .wp-marker-rule,
+.wp-marker.is-selected .wp-marker-rule {
+  opacity: 1;
+  stroke-dasharray: none;
+}
+
+.wp-marker.is-selected .wp-marker-dot {
+  stroke: var(--text);
+  stroke-width: 3;
+}
+
+.marker-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  font-size: 0.92rem;
 }
 
 .chart-caption {
@@ -1682,15 +1725,61 @@ main:focus {
 }
 
 .heat {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-  padding: 10px 12px;
   border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 6%, transparent);
   font-size: 0.92rem;
   animation: heat-in 0.3s ease-out;
+}
+
+.heat.is-selected {
+  outline: 2px solid var(--text);
+  outline-offset: -2px;
+}
+
+.heat-btn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.heat-btn:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -4px;
+}
+
+.heat-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.heat-title {
+  font-weight: 800;
+  font-size: 1.02rem;
+}
+
+.heat-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.heat-msg {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .heat-clock {
@@ -1698,6 +1787,7 @@ main:focus {
   font-size: 0.82rem;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .heat-mild {
@@ -1710,8 +1800,19 @@ main:focus {
   color: var(--n-700);
 }
 
+.heat-mid,
+.heat-high {
+  border-left-width: 5px;
+}
+
 .heat-extreme {
-  border-left-width: 6px;
+  border-left-width: 8px;
+}
+
+.head-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
 @keyframes heat-in {
@@ -1726,12 +1827,216 @@ main:focus {
 }
 
 @media (max-width: 480px) {
-  .heat {
+  .heat-btn {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .heat > .heat-clock {
+  .heat-btn > .heat-clock {
     grid-column: 2;
+  }
+}
+
+/* Status bar: connection, freshness, feed delay */
+.statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin-top: 14px;
+  min-height: 24px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--n-500);
+}
+
+.conn-live .conn-dot {
+  background: var(--accent);
+  animation: blink 1.6s ease-in-out infinite;
+}
+
+.conn-connecting .conn-dot,
+.conn-reconnecting .conn-dot,
+.conn-stalled .conn-dot {
+  background: var(--n-500);
+  animation: blink 0.9s steps(2, start) infinite;
+}
+
+.conn-lost {
+  color: var(--accent-ink);
+}
+
+.conn-lost .conn-dot {
+  background: var(--accent-ink);
+}
+
+.conn-stalled {
+  color: var(--accent-ink);
+}
+
+.status-item {
+  color: var(--text-muted);
+}
+
+.status-warn {
+  padding: 1px 6px;
+  border: 2px dashed var(--n-400);
+  color: var(--text);
+  cursor: help;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Run meter: the run in progress, on every update */
+.run-meter {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border-left: 4px solid var(--n-300);
+  background: var(--surface);
+}
+
+.run-text {
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.gauge {
+  position: relative;
+  height: 12px;
+  margin: 10px 0 8px;
+  border: 2px solid var(--rule);
+  background: var(--bg);
+}
+
+.gauge-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.run-meter[data-side="away"] .gauge-fill {
+  background: var(--text);
+}
+
+.run-meter[data-state="idle"] .run-text {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.run-meter[data-state="final"] .gauge,
+.run-meter[data-state="final"] .run-sub {
+  display: none;
+}
+
+.run-meter[data-state="building"] {
+  border-left-color: var(--accent);
+}
+
+.run-meter[data-state="flagged"] {
+  border-left: 8px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+
+.run-meter[data-state="flagged"] .gauge-fill {
+  background: repeating-linear-gradient(135deg, var(--accent) 0 8px, var(--accent-ink) 8px 16px);
+}
+
+.run-meter[data-state="flagged"] .gauge {
+  animation: flagged-pulse 1.4s ease-in-out infinite;
+}
+
+.run-sub {
+  font-size: 0.84rem;
+}
+
+@keyframes flagged-pulse {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+}
+
+/* Heat-check toast */
+.toast-region {
+  position: fixed;
+  z-index: 60;
+  top: calc(var(--header-h) + 8px);
+  right: 16px;
+  left: 16px;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(100%, 420px);
+  padding: 10px 12px;
+  border: 2px solid var(--text);
+  border-left: 8px solid var(--accent);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 0.95rem;
+  cursor: pointer;
+  pointer-events: auto;
+  animation: toast-in 0.25s ease-out;
+}
+
+.toast-mild {
+  border-left-color: var(--n-400);
+}
+
+.toast-clock {
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  opacity: 0.8;
+}
+
+.toast-close {
+  flex: none;
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
@@ -1750,4 +2055,88 @@ main:focus {
     opacity: 1;
     transform: none;
   }
+}
+
+/* ---------------------------------------------------------------- additions: tiles, calibration */
+
+.tile-heat {
+  margin-top: 10px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tile-heat.has-heat {
+  color: var(--accent-ink);
+}
+
+.cal {
+  margin: 14px 0 10px;
+}
+
+.cal-svg {
+  display: block;
+  width: min(100%, 280px);
+  height: auto;
+}
+
+.cal-frame {
+  fill: none;
+  stroke: var(--rule);
+  stroke-width: 2;
+}
+
+.cal-diagonal {
+  stroke: var(--n-500);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.cal-dot {
+  fill: var(--accent);
+  fill-opacity: 0.85;
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+
+.cal-tick {
+  fill: var(--text-muted);
+  font-size: 9px;
+  font-family: var(--mono);
+}
+
+.cal figcaption {
+  margin-top: 6px;
+  font-size: 0.82rem;
+}
+
+.cal-table {
+  margin-bottom: 12px;
+  font-size: 0.86rem;
+}
+
+.cal-table summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.cal-table table {
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-table th,
+.cal-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--hairline);
+  text-align: right;
+}
+
+.cal-table th:first-child,
+.cal-table td:first-child {
+  text-align: left;
 }

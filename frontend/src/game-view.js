@@ -1,18 +1,28 @@
-// The game page: scoreboard (with period ring and momentum meter), the
-// win-probability chart, and the heat-check list. Used for both live games
-// (#/live/<id>) and replays (#/replay/<id>).
+// The game page: scoreboard (with period ring and momentum meter), connection
+// status, the run meter, the win-probability chart and the heat-check feed.
+// Used for both live games (#/live/<id>) and replays (#/replay/<id>).
+//
+// Every wp_update carries the run in progress, so the run meter shows
+// something on every prediction; a run that crosses the threshold is also
+// flagged on the chart, listed in the feed and announced in a toast.
 
 import { api, explainStreamFailure, liveStreamUrl } from "./api.js";
 import { clockText, fromElapsed, percent } from "./format.js";
 import { connectStream } from "./sse-client.js";
 import { badge, esc, teamName } from "./teams.js";
-// "?v=3": bumped whenever worm-chart.js changes shape, so browsers that
+// "?v=5": bumped whenever worm-chart.js changes shape, so browsers that
 // cached an older version fetch the new one.
-import { createWormChart, loadD3 } from "./worm-chart.js?v=4";
+import { anomalyKey, createWormChart, loadD3 } from "./worm-chart.js?v=5";
 
 const CHART_CAPTION =
-  "Above the dashed line the home team is favoured, below it the away team. Dots are flagged runs, bigger for more unusual ones.";
-const MAX_HEAT_CHECKS = 20;
+  "Above the dashed line the home team is favoured, below it the away team. Labelled markers are flagged runs, bigger for more unusual ones. Tap one to read it.";
+const MAX_HEAT_CHECKS = 100;
+const MIN_RUN_DISPLAY = 4; // points; a basket or two is not worth calling a run
+const STALLED_SECONDS = 30; // no event or heartbeat for this long: say so
+const TOAST_SECONDS = 9;
+const MAX_TOASTS = 3;
+const TIER_WORDS = { mild: "Quicker than usual", mid: "Unusual", high: "Rare", extreme: "Extreme" };
+const DELAY_SAMPLES = 10;
 const MOMENTUM_WINDOW = 180; // game seconds
 const MOMENTUM_FULL_SCALE = 12; // a 12-point edge fills one side of the meter
 const RING_RADIUS = 16;
@@ -30,6 +40,7 @@ function layout(mode) {
       <section class="card elev-lg scoreboard" id="game-header" aria-live="polite">
         <p class="muted">${mode === "replay" ? "Starting the replay…" : "Connecting to the game…"}</p>
       </section>
+      <div class="statusbar" id="game-status" role="status"></div>
       <p class="notice" id="game-notice" role="status" hidden></p>
       <section class="card elev-md" aria-labelledby="chart-title">
         <div class="card-head">
@@ -38,8 +49,17 @@ function layout(mode) {
             <h2 id="chart-title">Who's likely to win</h2>
           </div>
         </div>
+        <div class="run-meter" id="run-meter" data-state="idle">
+          <p class="run-text" id="run-text">No active run</p>
+          <div class="gauge" id="run-gauge" role="meter" aria-label="How close the current run is to a heat check"
+            aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span class="gauge-fill" id="run-fill"></span>
+          </div>
+          <p class="run-sub muted" id="run-sub"></p>
+        </div>
         <div class="legend" id="chart-legend"></div>
         <div id="chart" class="chart"></div>
+        <p class="marker-detail" id="marker-detail" hidden></p>
         <p class="chart-caption muted">${CHART_CAPTION}</p>
       </section>
       <section class="card elev-sm" aria-labelledby="heat-title">
@@ -48,12 +68,16 @@ function layout(mode) {
             <p class="kicker">Run monitor</p>
             <h2 id="heat-title">Heat checks</h2>
           </div>
-          <p class="kicker muted">Newest first</p>
+          <div class="head-tools">
+            <button type="button" class="btn btn-quiet btn-sm" id="sound-toggle" aria-pressed="false">Sound off</button>
+            <p class="kicker muted">Newest first</p>
+          </div>
         </div>
-        <ol class="heat-list" id="heat-list"></ol>
-        <p class="muted" id="heat-empty">No unusually quick runs yet.</p>
+        <ol class="heat-list" id="heat-list" aria-live="polite"></ol>
+        <p class="muted" id="heat-empty">No unusually quick runs yet. A heat check is a run of 6 or more unanswered points that came faster than usual for that point in a game.</p>
       </section>
-    </div>`;
+    </div>
+    <div class="toast-region" id="toast-region" aria-live="polite"></div>`;
 }
 
 function heatTier(z) {
@@ -179,13 +203,52 @@ function renderHeader(el, view, history) {
     </div>`;
 }
 
+function shortSeconds(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 120) return `${s} s`;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function readSound() {
+  try {
+    return localStorage.getItem("heatcheck.sound") === "1";
+  } catch {
+    return false; // storage can be blocked; sound simply stays off
+  }
+}
+
+function saveSound(on) {
+  try {
+    localStorage.setItem("heatcheck.sound", on ? "1" : "0");
+  } catch {
+    // nothing to do: a preference that can't be saved is not worth an error
+  }
+}
+
 export function renderGame(root, { mode, id, speed, onMode }) {
   root.innerHTML = layout(mode);
-  const header = root.querySelector("#game-header");
-  const notice = root.querySelector("#game-notice");
-  const legend = root.querySelector("#chart-legend");
-  const heatList = root.querySelector("#heat-list");
-  const heatEmpty = root.querySelector("#heat-empty");
+  const $ = (selector) => root.querySelector(selector);
+  const header = $("#game-header");
+  const notice = $("#game-notice");
+  const legend = $("#chart-legend");
+  const heatList = $("#heat-list");
+  const heatEmpty = $("#heat-empty");
+  const statusBar = $("#game-status");
+  const markerDetail = $("#marker-detail");
+  const toastRegion = $("#toast-region");
+  const soundToggle = $("#sound-toggle");
+  const meter = {
+    box: $("#run-meter"),
+    text: $("#run-text"),
+    gauge: $("#run-gauge"),
+    fill: $("#run-fill"),
+    sub: $("#run-sub"),
+  };
 
   const view = {
     mode,
@@ -201,16 +264,98 @@ export function renderGame(root, { mode, id, speed, onMode }) {
     status: "connecting",
   };
   const history = []; // {t, home, away}, for the momentum meter
+  const seenAnomalies = new Map(); // key -> {anomaly, row}
+  const delays = []; // recent feed delays, seconds, from plays seen live
   let alive = true;
   let source = null;
   let chart = null;
   let receivedAny = false;
   let streamUrl = null;
+  let conn = "connecting"; // connecting | live | reconnecting | ended | lost
+  let lastSeen = null; // when anything (event or heartbeat) last arrived
+  let lastPlayAt = null; // when a play last arrived live
+  let fidelity = "play_by_play";
+  let run = null;
+  let selectedKey = null;
+  let headerFrame = null;
+  let soundOn = readSound();
+  let audio = null;
 
   const showNotice = (html) => {
     notice.innerHTML = html;
     notice.hidden = !html;
   };
+
+  // ---- connection status -------------------------------------------------
+
+  function renderStatus() {
+    const now = Date.now();
+    const silent = lastSeen ? (now - lastSeen) / 1000 : 0;
+    let state = conn;
+    let label = { connecting: "Connecting…", reconnecting: "Reconnecting…", ended: "Ended", lost: "Connection lost" }[conn];
+    if (conn === "live") {
+      state = silent > STALLED_SECONDS ? "stalled" : "live";
+      label = state === "stalled" ? `No data for ${Math.round(silent)} s` : mode === "replay" ? "Replay" : "Live";
+    }
+    const parts = [
+      `<span class="conn conn-${state}"><span class="conn-dot" aria-hidden="true"></span>${esc(label)}</span>`,
+    ];
+    if (mode === "live" && conn === "live" && lastPlayAt) {
+      parts.push(`<span class="status-item">Last play ${shortSeconds((now - lastPlayAt) / 1000)} ago</span>`);
+    }
+    if (mode === "live" && delays.length && conn !== "ended") {
+      const seconds = Math.round(median(delays));
+      parts.push(
+        `<span class="status-item" title="Time from the NBA's feed logging a play to this server sending it to you. It cannot be shorter than the feed itself, and it does not include the broadcast delay or your own network.">Feed delay ≈ ${seconds} s</span>`,
+      );
+    }
+    if (fidelity === "boxscore_ticks") {
+      parts.push(
+        `<span class="status-item status-warn" title="Play-by-play was unavailable for this game, so runs are timed from score updates. Some heat checks can be missed or mistimed.">Approximate mode</span>`,
+      );
+    }
+    statusBar.innerHTML = parts.join("");
+  }
+
+  // ---- run meter ---------------------------------------------------------
+
+  function renderRun() {
+    let state = "idle";
+    let text = "No active run";
+    let sub = "A run is unanswered points by one team. It can be flagged once it reaches 6 points.";
+    let fill = 0;
+    if (view.status === "final") {
+      state = "final";
+      text = "Game over";
+      sub = "";
+    } else if (run && run.points >= MIN_RUN_DISPLAY) {
+      const code = run.team === "home" ? view.home : view.away;
+      const z = run.z_score;
+      const threshold = run.threshold || 1.5;
+      text = `${esc(code || run.team)} on a ${run.points}-0 run, ${shortSeconds(run.duration_sec)}`;
+      fill = z == null ? 0 : Math.max(0, Math.min(1, z / threshold));
+      if (run.flagged) {
+        state = "flagged";
+        sub = `Flagged as a heat check${z != null ? ` · ${z.toFixed(1)}σ` : ""}`;
+      } else {
+        state = "building";
+        sub =
+          z == null
+            ? "Too small to score yet: runs are scored from 6 points."
+            : `Heat check at ${threshold}σ · this run is at ${z.toFixed(1)}σ`;
+      }
+      if (run.since_last_score_sec >= 20) sub += ` · last basket ${shortSeconds(run.since_last_score_sec)} ago`;
+    }
+    meter.box.dataset.state = state;
+    meter.box.dataset.side = run && state !== "idle" ? run.team : "";
+    meter.text.innerHTML = text;
+    meter.sub.textContent = sub;
+    meter.fill.style.width = `${Math.round(fill * 100)}%`;
+    meter.gauge.setAttribute("aria-valuenow", String(Math.round(fill * 100)));
+    meter.gauge.setAttribute("aria-valuetext", state === "idle" ? "no active run" : `${Math.round(fill * 100)}% of the way to a heat check`);
+  }
+
+  // ---- header, legend, chart ---------------------------------------------
 
   function renderLegend(message = null) {
     legend.innerHTML = `
@@ -219,13 +364,22 @@ export function renderGame(root, { mode, id, speed, onMode }) {
       ${message ? `<span class="chip chip-heat legend-tag">${esc(message)}</span>` : ""}`;
   }
 
+  function scheduleHeader() {
+    if (headerFrame !== null) return;
+    headerFrame = requestAnimationFrame(() => {
+      headerFrame = null;
+      if (alive) renderHeader(header, view, history);
+    });
+  }
+
   function ensureChart() {
     if (chart || !view.home || !view.away) return;
     renderLegend();
-    chart = createWormChart(root.querySelector("#chart"), {
+    chart = createWormChart($("#chart"), {
       homeLabel: view.home,
       awayLabel: view.away,
       onHover: (message) => renderLegend(message),
+      onSelect: (anomaly) => select(anomaly ? anomalyKey(anomaly) : null, { fromChart: true }),
     });
   }
 
@@ -239,8 +393,116 @@ export function renderGame(root, { mode, id, speed, onMode }) {
     while (history.length > 1 && history[0].t < keepFrom) history.shift();
   }
 
+  // ---- heat-check feed, selection, toast, sound ----------------------------
+
+  function whereText(a) {
+    const where = a.period ? { period: a.period, clock: a.clock } : fromElapsed(a.t);
+    return clockText(where.period, where.clock);
+  }
+
+  function select(key, { fromChart = false } = {}) {
+    selectedKey = key;
+    for (const [k, entry] of seenAnomalies) {
+      entry.row.classList.toggle("is-selected", k === key);
+      entry.row.querySelector(".heat-btn").setAttribute("aria-pressed", String(k === key));
+    }
+    const entry = key ? seenAnomalies.get(key) : null;
+    if (!fromChart) chart?.select(key);
+    markerDetail.hidden = !entry;
+    if (entry) {
+      markerDetail.textContent = `${whereText(entry.anomaly)} · ${entry.anomaly.message}`;
+      if (fromChart) entry.row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  function addHeatRow(a) {
+    const key = anomalyKey(a);
+    if (seenAnomalies.has(key)) return false; // a reconnect re-sending history
+    const code = a.team_code || (a.team === "home" ? view.home : view.away);
+    const tier = a.tier || heatTier(a.z_score);
+    const row = document.createElement("li");
+    row.className = `heat heat-${tier}`;
+    row.innerHTML = `
+      <button type="button" class="heat-btn" aria-pressed="false">
+        ${badge(code, { size: "sm" })}
+        <span class="heat-main">
+          <span class="heat-title">${a.magnitude}-0 run in ${esc(shortSeconds(a.duration_sec))}</span>
+          <span class="heat-sub"><span class="chip chip-heat">${a.z_score.toFixed(1)}σ</span> ${esc(TIER_WORDS[tier])}</span>
+          <span class="heat-msg">${esc(a.message)}</span>
+        </span>
+        <span class="heat-clock">${esc(whereText(a))}</span>
+      </button>`;
+    row.querySelector(".heat-btn").addEventListener("click", () => select(selectedKey === key ? null : key));
+    heatList.prepend(row);
+    seenAnomalies.set(key, { anomaly: a, row });
+    while (heatList.children.length > MAX_HEAT_CHECKS) {
+      const last = heatList.lastElementChild;
+      for (const [k, entry] of seenAnomalies) if (entry.row === last) seenAnomalies.delete(k);
+      last.remove();
+    }
+    heatEmpty.hidden = true;
+    return true;
+  }
+
+  function showToast(a) {
+    const code = a.team_code || (a.team === "home" ? view.home : view.away);
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${a.tier || heatTier(a.z_score)}`;
+    toast.innerHTML = `
+      <p><strong>Heat check</strong> ${esc(code)} ${a.magnitude}-0 run in ${esc(shortSeconds(a.duration_sec))}
+      <span class="toast-clock">${esc(whereText(a))}</span></p>
+      <button type="button" class="toast-close" aria-label="Dismiss">×</button>`;
+    const dismiss = () => toast.remove();
+    toast.querySelector(".toast-close").addEventListener("click", dismiss);
+    toast.addEventListener("click", (event) => {
+      if (event.target.closest(".toast-close")) return;
+      select(anomalyKey(a));
+      dismiss();
+    });
+    toastRegion.prepend(toast);
+    while (toastRegion.children.length > MAX_TOASTS) toastRegion.lastElementChild.remove();
+    setTimeout(dismiss, TOAST_SECONDS * 1000);
+    if (soundOn) beep();
+  }
+
+  function beep() {
+    try {
+      audio ||= new (window.AudioContext || window.webkitAudioContext)();
+      const now = audio.currentTime;
+      for (const [offset, freq] of [[0, 740], [0.14, 988]]) {
+        const osc = audio.createOscillator();
+        const gain = audio.createGain();
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
+        osc.connect(gain).connect(audio.destination);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.2);
+      }
+    } catch {
+      // no audio available; the toast is still there
+    }
+  }
+
+  function renderSound() {
+    soundToggle.textContent = soundOn ? "Sound on" : "Sound off";
+    soundToggle.setAttribute("aria-pressed", String(soundOn));
+  }
+
+  soundToggle.addEventListener("click", () => {
+    soundOn = !soundOn;
+    saveSound(soundOn);
+    renderSound();
+    if (soundOn) beep(); // the click is the user gesture browsers require, and confirms it works
+  });
+
+  // ---- stream events -------------------------------------------------------
+
   function onPoint(p) {
     receivedAny = true;
+    lastSeen = Date.now();
+    if (conn !== "ended") conn = "live";
     view.home = p.home_team || view.home;
     view.away = p.away_team || view.away;
     view.homeScore = p.home_score;
@@ -251,48 +513,60 @@ export function renderGame(root, { mode, id, speed, onMode }) {
     view.clock = where.clock;
     view.clockText = clockText(where.period, where.clock);
     if (view.status !== "final") view.status = p.status === "scheduled" ? "pregame" : "live";
+    fidelity = p.fidelity || fidelity;
+    run = p.run ?? null;
+    if (!p.backlog) {
+      lastPlayAt = Date.now();
+      if (typeof p.feed_delay_sec === "number") {
+        delays.push(p.feed_delay_sec);
+        if (delays.length > DELAY_SAMPLES) delays.shift();
+      }
+    }
     track(p);
     showNotice("");
     ensureChart();
     chart?.addPoint({ t: p.t, wp_home: p.wp_home });
-    renderHeader(header, view, history);
+    scheduleHeader();
+    renderRun();
+    renderStatus();
   }
 
   function onAnomaly(a) {
     receivedAny = true;
+    lastSeen = Date.now();
     ensureChart();
     chart?.addAnomaly(a);
-    const where = fromElapsed(a.t);
-    const row = document.createElement("li");
-    row.className = `heat heat-${heatTier(a.z_score)}`;
-    row.innerHTML = `
-      <span class="chip chip-heat">${a.z_score.toFixed(1)}σ</span>
-      <p>${esc(a.message)}</p>
-      <span class="heat-clock">${esc(clockText(where.period, where.clock))}</span>`;
-    heatList.prepend(row);
-    while (heatList.children.length > MAX_HEAT_CHECKS) heatList.lastElementChild.remove();
-    heatEmpty.hidden = true;
+    const added = addHeatRow(a);
+    if (added && !a.backlog) showToast(a);
   }
 
   function onEnd(e) {
     view.status = "final";
     view.homeScore = e.final_home_score;
     view.awayScore = e.final_away_score;
+    conn = "ended";
+    run = null;
     renderHeader(header, view, history);
+    renderRun();
+    renderStatus();
     showNotice("");
-    // The server forgets a finished game; stop the browser from reconnecting.
+    // Nothing more will come; stop the browser from reconnecting.
     source?.close();
   }
 
   async function onError({ reconnecting }) {
     if (!alive || view.status === "final") return;
     if (reconnecting) {
+      conn = "reconnecting";
+      renderStatus();
       showNotice("Reconnecting…");
       return;
     }
     source?.close();
     const reason = !receivedAny && streamUrl ? await explainStreamFailure(streamUrl) : null;
     if (!alive) return;
+    conn = "lost";
+    renderStatus();
     if (!receivedAny && reason) {
       header.innerHTML = `<p class="notice">${esc(reason)}</p><p><a href="#/">Back to tonight's games</a></p>`;
       return;
@@ -303,11 +577,23 @@ export function renderGame(root, { mode, id, speed, onMode }) {
 
   function connect(url) {
     streamUrl = url;
+    conn = "connecting";
     source = connectStream(url, {
       wp_update: onPoint,
       anomaly: onAnomaly,
       game_end: onEnd,
-      degraded: () => showNotice("NBA.com isn't responding right now. Still trying…"),
+      degraded: () => showNotice("The data source isn't responding right now. Still trying…"),
+      heartbeat: () => {
+        lastSeen = Date.now();
+        if (conn === "reconnecting" || conn === "connecting") conn = "live";
+        renderStatus();
+      },
+      onopen: () => {
+        lastSeen = Date.now();
+        if (conn !== "ended") conn = "live";
+        showNotice("");
+        renderStatus();
+      },
       onerror: onError,
     });
   }
@@ -321,13 +607,14 @@ export function renderGame(root, { mode, id, speed, onMode }) {
         if (!alive) return;
         onMode?.(board.mode === "demo");
         const game = board.games.find((g) => g.game_id === id);
-        if (!game) {
-          header.innerHTML = `<p class="notice">That game isn't on today's scoreboard.</p><p><a href="#/">Back to tonight's games</a></p>`;
-          return;
+        if (game) {
+          view.home = game.home.tricode;
+          view.away = game.away.tricode;
+          if (game.status === "final") view.status = "final";
         }
-        view.home = game.home.tricode;
-        view.away = game.away.tricode;
-        if (game.status === "final") view.status = "final";
+        // A game that has dropped off today's scoreboard (it ended after
+        // midnight Eastern, say) may still be held by the server for a day,
+        // so try the stream either way; the server answers 404 if it isn't.
         await d3Ready;
         if (!alive) return;
         connect(liveStreamUrl(id));
@@ -350,15 +637,24 @@ export function renderGame(root, { mode, id, speed, onMode }) {
       renderHeader(header, view, history);
     } catch (error) {
       if (!alive) return;
+      conn = "lost";
+      renderStatus();
       header.innerHTML = `<p class="notice">${esc(error.message)}</p><p><a href="#/">Back to the dashboard</a></p>`;
     }
   }
 
+  renderSound();
+  renderRun();
+  renderStatus();
+  const ticker = setInterval(renderStatus, 1000);
   start();
 
   return () => {
     alive = false;
+    clearInterval(ticker);
+    if (headerFrame !== null) cancelAnimationFrame(headerFrame);
     source?.close();
     chart?.destroy();
+    audio?.close?.();
   };
 }

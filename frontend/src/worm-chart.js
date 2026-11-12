@@ -1,7 +1,11 @@
 // Win-probability chart: the home team's chance of winning over game time.
 // Above the 50% line is the home side (accent), below it the away side
 // (ink). Colours come from CSS classes, so both themes work. Quarter rules,
-// and a marker on the 50% line for each flagged run.
+// and a labelled marker ("8-0") on the 50% line for each flagged run. Markers
+// can be hovered, focused, clicked or tapped; selecting one is reported to the
+// page (onSelect) so the heat-check list can follow, and the page can select
+// one too (select(key)). Drawing is coalesced to one repaint per frame, so a
+// backlog of hundreds of points costs one draw, not hundreds.
 // Uses the global `d3` from /vendor/d3.min.js, which only game pages need,
 // so it is loaded on demand with loadD3() instead of on every page.
 
@@ -30,6 +34,14 @@ function segmentLabel(i) {
 let chartCount = 0;
 let d3Loading = null;
 
+// Stable identity of a flagged run, shared by the chart and the list.
+export function anomalyKey(a) {
+  return `${Math.round(a.t)}:${a.team}:${a.magnitude}`;
+}
+
+const HIT_RADIUS = 17; // a 34px target: big enough for a finger
+const LABEL_GAP = 36; // markers closer than this (px) stagger their labels
+
 export function loadD3() {
   if (window.d3) return Promise.resolve(window.d3);
   if (!d3Loading) {
@@ -48,7 +60,7 @@ export function loadD3() {
   return d3Loading;
 }
 
-export function createWormChart(container, { homeLabel, awayLabel, onHover = () => {} }) {
+export function createWormChart(container, { homeLabel, awayLabel, onHover = () => {}, onSelect = () => {} }) {
   const d3 = window.d3;
   chartCount += 1;
   const id = `wp-${chartCount}`;
@@ -126,6 +138,8 @@ export function createWormChart(container, { homeLabel, awayLabel, onHover = () 
 
   const points = [];
   const anomalies = [];
+  let selectedKey = null;
+  let frame = null;
 
   function drawGrid() {
     x.domain([0, maxT]);
@@ -185,7 +199,7 @@ export function createWormChart(container, { homeLabel, awayLabel, onHover = () 
       .text((d) => d.text);
   }
 
-  function draw() {
+  function paint() {
     homeArea.attr("d", area(points));
     awayArea.attr("d", area(points));
     homeLine.attr("d", line(points));
@@ -198,19 +212,43 @@ export function createWormChart(container, { homeLabel, awayLabel, onHover = () 
         .attr("cy", y(last.wp_home))
         .attr("class", `wp-latest ${last.wp_home >= 0.5 ? "wp-latest-home" : "wp-latest-away"}`);
     }
+    // Labels stagger upward when markers sit close together.
+    const sorted = [...anomalies].sort((a, b) => a.t - b.t);
+    const level = new Map();
+    let lastX = -Infinity;
+    let lastLevel = 0;
+    for (const a of sorted) {
+      const px = x(a.t);
+      lastLevel = px - lastX < LABEL_GAP ? (lastLevel + 1) % 3 : 0;
+      lastX = px;
+      level.set(anomalyKey(a), lastLevel);
+    }
+    const radius = (d) => Math.min(11, 6 + d.z_score * 1.4);
+
     markers
       .selectAll("g.wp-marker")
-      .data(anomalies)
+      .data(sorted, anomalyKey)
       .join((enter) => {
-        const g = enter.append("g").attr("class", "wp-marker").attr("tabindex", 0).attr("role", "button");
+        const g = enter.append("g").attr("tabindex", 0).attr("role", "button");
         g.append("line").attr("class", "wp-marker-rule");
+        g.append("circle").attr("class", "wp-marker-hit").attr("r", HIT_RADIUS);
         g.append("circle").attr("class", "wp-marker-dot");
+        g.append("text").attr("class", "wp-marker-label").attr("text-anchor", "middle");
         g.append("title");
         g.on("mouseenter focus", (event, d) => onHover(d.message));
         g.on("mouseleave blur", () => onHover(null));
+        g.on("click", (event, d) => toggle(anomalyKey(d)));
+        g.on("keydown", (event, d) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggle(anomalyKey(d));
+          }
+        });
         return g;
       })
-      .attr("aria-label", (d) => d.message)
+      .attr("class", (d) => `wp-marker wp-marker-${d.team}${anomalyKey(d) === selectedKey ? " is-selected" : ""}`)
+      .attr("aria-pressed", (d) => String(anomalyKey(d) === selectedKey))
+      .attr("aria-label", (d) => `${d.magnitude}-0 run. ${d.message}`)
       .call((g) => g.select("title").text((d) => d.message))
       .call((g) =>
         g
@@ -222,11 +260,44 @@ export function createWormChart(container, { homeLabel, awayLabel, onHover = () 
       )
       .call((g) =>
         g
-          .select("circle")
+          .select(".wp-marker-hit")
+          .attr("cx", (d) => x(d.t))
+          .attr("cy", y(0.5)),
+      )
+      .call((g) =>
+        g
+          .select(".wp-marker-dot")
           .attr("cx", (d) => x(d.t))
           .attr("cy", y(0.5))
-          .attr("r", (d) => Math.min(9, 4 + d.z_score)),
+          .attr("r", radius),
+      )
+      .call((g) =>
+        g
+          .select("text")
+          .attr("x", (d) => Math.max(MARGIN.left + 14, Math.min(WIDTH - MARGIN.right - 14, x(d.t))))
+          .attr("y", (d) => y(0.5) - radius(d) - 6 - level.get(anomalyKey(d)) * 13)
+          .text((d) => `${d.magnitude}-0`),
       );
+  }
+
+  // Coalesce redraws: however many points arrive in a frame, paint once.
+  function draw() {
+    if (frame !== null) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      paint();
+    });
+  }
+
+  function toggle(key) {
+    select(selectedKey === key ? null : key);
+    onSelect(selectedKey === null ? null : anomalies.find((a) => anomalyKey(a) === selectedKey) || null);
+  }
+
+  // Called by the page (the heat-check list) as well as by taps on a marker.
+  function select(key) {
+    selectedKey = key;
+    paint();
   }
 
   function addPoint(point) {
@@ -254,15 +325,18 @@ export function createWormChart(container, { homeLabel, awayLabel, onHover = () 
     points.length = 0;
     anomalies.length = 0;
     maxT = REGULATION;
+    selectedKey = null;
     latest.style("display", "none");
     drawGrid();
-    draw();
+    paint();
   }
 
   function destroy() {
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
     svg.remove();
   }
 
   drawGrid();
-  return { addPoint, addAnomaly, reset, destroy };
+  return { addPoint, addAnomaly, select, reset, destroy };
 }

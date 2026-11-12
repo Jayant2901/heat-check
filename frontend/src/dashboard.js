@@ -192,10 +192,18 @@ function gameTile(game) {
        </div>`
     : "";
 
+  // Heat checks found so far, for games this server has followed.
+  const heatCount = game.heat_checks;
+  const heat =
+    typeof heatCount === "number" && !scheduled
+      ? `<p class="tile-heat${heatCount ? " has-heat" : ""}">${heatCount} heat check${heatCount === 1 ? "" : "s"} so far</p>`
+      : "";
+
   const label = `${game.away.tricode} at ${game.home.tricode}`;
   const inner = `
     <div class="tile-top">${chip}<span class="tile-when">${when}</span></div>
     ${rows}
+    ${heat}
     ${leaders}
     ${live ? `<span class="tile-cta">Follow live ${ARROW_RIGHT}</span>` : ""}`;
 
@@ -224,9 +232,11 @@ function renderTonight(container, meta, board) {
         <div>
           <h3>No NBA games today</h3>
           <p class="muted">
-            See <a href="#/?section=week">this week's results</a> or
-            <a href="#/?section=replays">replay a classic game</a>.
+            It's an off day or the off-season (the NBA season runs from late October to June). You can still see
+            how Heat Check works: <a href="#/?section=replays">replay a classic game</a> to watch win chance and
+            heat checks unfold, or look at <a href="#/?section=week">this week's results</a>.
           </p>
+          <p><a class="btn btn-primary btn-sm" href="#/?section=replays">Watch a replay ${ARROW_RIGHT}</a></p>
         </div>
         <span class="chip">No games</span>
       </div>`;
@@ -498,11 +508,63 @@ function renderReplays(container, data) {
 
 // ---------------------------------------------------------------- how
 
+function calibrationChart(calibration) {
+  // Predicted win chance (x) against how often the home team really won (y).
+  // On the diagonal means well calibrated; the dot area grows with the number of games behind it.
+  const size = 240;
+  const pad = 30;
+  const scale = (v) => pad + v * (size - 2 * pad);
+  const flip = (v) => size - pad - v * (size - 2 * pad);
+  const bins = (calibration.bins || []).filter((b) => b.n_states);
+  const maxGames = Math.max(1, ...bins.map((b) => b.n_games));
+  const dots = bins
+    .map(
+      (b) =>
+        `<circle cx="${scale(b.mean_predicted).toFixed(1)}" cy="${flip(b.observed_home_win_rate).toFixed(1)}" r="${(3 + 5 * Math.sqrt(b.n_games / maxGames)).toFixed(1)}" class="cal-dot"><title>Predicted ${percent(b.mean_predicted)}, home team won ${percent(b.observed_home_win_rate)} (${b.n_games} games)</title></circle>`,
+    )
+    .join("");
+  const ticks = [0, 0.5, 1]
+    .map(
+      (v) =>
+        `<text x="${scale(v)}" y="${size - 10}" text-anchor="middle" class="cal-tick">${Math.round(v * 100)}%</text>
+         <text x="${pad - 6}" y="${flip(v) + 4}" text-anchor="end" class="cal-tick">${Math.round(v * 100)}%</text>`,
+    )
+    .join("");
+  const rows = bins
+    .map(
+      (b) =>
+        `<tr><td>${percent(b.lo)}–${percent(b.hi)}</td><td>${percent(b.mean_predicted)}</td><td>${percent(b.observed_home_win_rate)}</td><td>${b.n_games}</td></tr>`,
+    )
+    .join("");
+  return `
+    <figure class="cal">
+      <svg viewBox="0 0 ${size} ${size}" class="cal-svg" role="img"
+        aria-label="Calibration: predicted home win chance against how often the home team won. Points near the diagonal mean the percentages are honest.">
+        <rect x="${pad}" y="${pad}" width="${size - 2 * pad}" height="${size - 2 * pad}" class="cal-frame" />
+        <line x1="${scale(0)}" y1="${flip(0)}" x2="${scale(1)}" y2="${flip(1)}" class="cal-diagonal" />
+        ${dots}${ticks}
+      </svg>
+      <figcaption class="muted">Predicted win chance (across) against how often the home team won (up). On the dashed line = honest percentages.</figcaption>
+    </figure>
+    <details class="cal-table">
+      <summary>Show the numbers</summary>
+      <table>
+        <thead><tr><th scope="col">Predicted</th><th scope="col">Average predicted</th><th scope="col">Home team won</th><th scope="col">Games</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </details>`;
+}
+
 function renderHow(container, info) {
   const num = (x) => Number(x).toLocaleString();
   const seasons = (info.seasons || []).slice().sort().join(", ");
   const trained = (info.train_seasons || []).join(" and ");
-  const poll = info.poll_interval_seconds;
+  const poll = info.live_poll_interval_seconds;
+  const threshold = info.anomaly_z_threshold;
+  const minRun = info.anomaly_min_magnitude || 6;
+  const cal = info.calibration;
+  const backtest = info.heat_check_backtest;
+  const chosen = backtest && backtest.thresholds ? backtest.thresholds[Number(threshold).toFixed(1)] : null;
 
   const stat = (value, attrs, caption) => `
     <div class="stat">
@@ -511,10 +573,53 @@ function renderHow(container, info) {
     </div>`;
   const accuracy = info.accuracy * 100;
 
+  const calibrationBody = cal
+    ? `
+        <p>
+          Accuracy alone doesn't show whether "70%" means 70%. Replaying ${num(cal.n_games)} finished games
+          from ${esc(cal.first_day)} to ${esc(cal.last_day)} (none of them seen by the model) and checking each
+          moment's predicted win chance against how the game ended gives a Brier score of
+          ${cal.brier.toFixed(3)}. Always saying 50% scores ${cal.brier_coin_flip.toFixed(3)}, and the model's
+          own held-out score is ${info.brier.toFixed(3)} (lower is better).
+        </p>
+        ${calibrationChart(cal)}
+        <p class="muted">
+          Those ${num(cal.n_states)} moments come from only ${num(cal.n_games)} games, and the moments of one game share
+          one result, so the curve is noisy. In this sample the home team won a little less often than the model
+          said in the middle of the range.
+        </p>`
+    : `<p class="muted">The calibration check hasn't been run on this deployment (<code>scripts/calibration_check.py</code>), so there is no curve to show yet.</p>`;
+
+  const flagBody = `
+        <p>
+          When a team scores ${minRun} or more unanswered points, the time from its first basket to its latest is
+          compared with ${num(info.n_runs)} runs from ${esc(seasons)} that started at the same stage of a game. A run
+          at least ${threshold} standard deviation${Number(threshold) === 1 ? "" : "s"} quicker than usual is flagged as a heat check. At that level it is
+          "quicker than usual", not "rare": the wording gets stronger only for bigger z-scores.
+        </p>
+        <p class="muted">
+          ${
+            chosen
+              ? `The threshold was chosen by replaying ${num(backtest.n_games)} finished games (${esc(backtest.first_day)} to ${esc(backtest.last_day)}) at several levels:
+                 at ${threshold} a game gets ${chosen.mean_per_game} flags on average, and ${Math.round(chosen.share_with_zero * 100)}% of games get none.
+                 That tunes how often a game gets a flag; it does not show that a flagged run matters. `
+              : "The threshold has not been checked against a larger set of games on this deployment. "
+          }The run history also includes ${esc(info.test_season)}, the season the model was tested on.
+        </p>`;
+
   const rows = [
     {
       title: "Poll",
-      body: `<p>During a game the server reads NBA.com's box score every ${poll} seconds: score, quarter and clock.</p>`,
+      body: `
+        <p>
+          During a game the server reads the NBA's play-by-play feed about every ${poll} seconds (less often while
+          play is stopped) and turns every new play into a win-chance update, so a run is timed from its real
+          baskets, not from when a poll happened to notice it.
+        </p>
+        <p class="muted">
+          The page can't be faster than that feed: it shows its own "feed delay" for the plays it has just received.
+          It does not include the TV broadcast delay or your connection.
+        </p>`,
     },
     {
       title: "Recompute",
@@ -530,20 +635,8 @@ function renderHow(container, info) {
           so every game starts near 50%.
         </p>`,
     },
-    {
-      title: "Flag",
-      body: `
-        <p>
-          When a team scores 6 or more unanswered points, the time it took is compared with ${num(info.n_runs)} runs
-          from ${esc(seasons)} at the same stage of a game. Runs at least ${info.anomaly_z_threshold} standard
-          deviations quicker than usual are flagged as heat checks.
-        </p>
-        <p class="muted">
-          That threshold was set by looking at three games, not by a proper evaluation. A ${poll}-second poll can
-          merge baskets, so a replay (sampled every few seconds) and the same game live can flag different runs.
-          The run history also includes ${esc(info.test_season)}, the season the model was tested on.
-        </p>`,
-    },
+    { title: "Calibrate", body: calibrationBody },
+    { title: "Flag", body: flagBody },
     {
       title: "Recap",
       body: `
@@ -563,10 +656,10 @@ function renderHow(container, info) {
   container.innerHTML = `
     <div class="stat-strip">
       <div class="stat-grid">
-        ${stat(num(info.n_runs), `data-count="${info.n_runs}"`, "Real 6+ point runs in the baseline")}
+        ${stat(num(info.n_runs), `data-count="${info.n_runs}"`, `Real ${minRun}+ point runs in the baseline`)}
         ${stat(`${accuracy.toFixed(1)}%`, `data-count="${accuracy}" data-decimals="1" data-suffix="%"`, `Favourite won, held-out ${esc(info.test_season)}`)}
         ${stat(num(info.n_test_rows), `data-count="${info.n_test_rows}"`, "Held-out game states tested")}
-        ${stat(`${poll}s`, `data-count="${poll}" data-suffix="s"`, "Between box-score reads")}
+        ${stat(`${poll}s`, `data-count="${poll}" data-suffix="s"`, "Between play-by-play reads")}
       </div>
     </div>
     <ol class="pipeline">
@@ -640,7 +733,14 @@ export function renderDashboard(root, { section, onMode }) {
       renderTonight($("tonight-body"), $("tonight-meta"), board);
       keepInView();
     } catch (error) {
-      if (alive) $("tonight-body").innerHTML = `<p class="notice">${esc(error.message)}</p>`;
+      if (alive) {
+        $("tonight-body").innerHTML = `
+          <div class="notice">
+            <p>${esc(error.message)}</p>
+            <p class="muted">Tonight's games can't be loaded right now. You can still
+            <a href="#/?section=replays">replay a classic game</a>.</p>
+          </div>`;
+      }
     } finally {
       inflight = false;
     }
