@@ -29,6 +29,15 @@ def _read_meta(path) -> dict:
     return json.loads(meta_path.read_text())
 
 
+def _read_optional(name: str) -> dict | None:
+    """A results file written by scripts/ (calibration, backtest); None if
+    it has not been generated, so the page says so instead of inventing numbers."""
+    try:
+        return json.loads((settings.win_prob_model_path.parent / name).read_text())
+    except (OSError, ValueError):
+        return None
+
+
 @router.get("/model-info")
 def get_model_info():
     """Held-out numbers straight from the training/baseline metadata files."""
@@ -57,6 +66,11 @@ def get_model_info():
         "n_runs": baseline_meta.get("n_runs"),
         "seasons": baseline_meta.get("seasons"),
         "anomaly_z_threshold": settings.anomaly_z_threshold,
-        "poll_interval_seconds": settings.poll_interval_seconds,
+        "anomaly_min_magnitude": settings.anomaly_min_magnitude,
+        "live_poll_interval_seconds": settings.live_poll_interval_seconds,
         "weekly_run_min_z": settings.weekly_run_min_z,
+        # From scripts/calibration_check.py and scripts/backtest_heat_checks.py;
+        # None until those have been run.
+        "calibration": _read_optional("win_prob_calibration_v1.json"),
+        "heat_check_backtest": _read_optional("heat_check_backtest.json"),
     }

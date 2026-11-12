@@ -5,7 +5,7 @@ from dataclasses import replace
 import pandas as pd
 import pytest
 
-from app.core.config import REPLAY_FIXTURES_DIR
+from app.core.config import REPLAY_FIXTURES_DIR, settings
 from app.core.engine import process_snapshots, process_tick
 from app.core.game_state import GameState
 from app.core.interfaces import GameSnapshot
@@ -149,6 +149,17 @@ def _fixture_snapshots(name, exact):
     return [GameSnapshot(**{**s, "exact": exact}) for s in data["snapshots"]]
 
 
+@pytest.fixture
+def threshold_1_5(monkeypatch):
+    """The three-run expectation below was measured at z >= 1.5; pin it so the
+    test does not move when the product default is retuned."""
+    import dataclasses
+
+    from app.core import engine
+
+    monkeypatch.setattr(engine, "settings", dataclasses.replace(engine.settings, anomaly_z_threshold=1.5))
+
+
 def _run_flags(snapshots, chunk, model, baseline):
     """Feed `snapshots` to the engine `chunk` at a time (a poll that sees
     `chunk` new plays) and return the heat checks it found."""
@@ -158,7 +169,7 @@ def _run_flags(snapshots, chunk, model, baseline):
     return [(round(a.elapsed_seconds, 1), a.magnitude, round(a.duration_seconds, 1), round(a.z_score, 4)) for a in state.anomalies]
 
 
-def test_play_by_play_flags_do_not_depend_on_polling_cadence():
+def test_play_by_play_flags_do_not_depend_on_polling_cadence(threshold_1_5):
     """The inverse of the old sampling test. With one exact snapshot per play,
     how many plays a poll delivers (1 each, a 3 s feed's handful, a 12 s
     feed's dozen, the whole game at once) changes nothing: same runs, same
@@ -173,7 +184,7 @@ def test_play_by_play_flags_do_not_depend_on_polling_cadence():
         assert _run_flags(snapshots, chunk, model, baseline) == reference
 
 
-def test_boxscore_ticks_depend_on_sampling():
+def test_boxscore_ticks_depend_on_sampling(threshold_1_5):
     """The lower-fidelity path (exact=False) keeps its documented weakness:
     the same game gives different flags at different sampling strides."""
     from app.core.artifacts import get_baseline, get_model
@@ -193,7 +204,7 @@ def test_boxscore_ticks_depend_on_sampling():
     assert (flags(1), flags(4)) == (0, 1)
 
 
-def test_backfilled_state_equals_streamed_state():
+def test_backfilled_state_equals_streamed_state(threshold_1_5):
     """A viewer arriving mid-game gets state rebuilt from the play-by-play so
     far in one go; it must equal what streaming play by play produced."""
     from app.core.artifacts import get_baseline, get_model
@@ -251,7 +262,7 @@ def test_every_wp_update_carries_the_run_state(baseline_df):
     assert wp[0].run is None  # no run yet
     assert wp[1].run == {**wp[1].run, "team": "home", "points": 2, "duration_sec": 0.0}
     assert wp[3].run["points"] == 8 and wp[3].run["duration_sec"] == 20.0
-    assert wp[3].run["threshold"] == pytest.approx(1.5)
+    assert wp[3].run["threshold"] == settings.anomaly_z_threshold
     assert wp[4].run["team"] == "away" and wp[4].run["points"] == 2
 
 

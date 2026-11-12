@@ -1,0 +1,66 @@
+{
+  "generated_at": "2026-11-12T11:07:23+00:00",
+  "source": "ESPN play-by-play, regular season",
+  "n_games": 170,
+  "first_day": "2026-10-20",
+  "last_day": "2026-11-11",
+  "min_run_points": 6,
+  "thresholds": {
+    "1.0": {
+      "games": 170,
+      "total_flags": 299,
+      "mean_per_game": 1.76,
+      "median_per_game": 2.0,
+      "p10": 0.0,
+      "p90": 3.0,
+      "max": 6,
+      "share_with_zero": 0.147,
+      "share_with_ten_or_more": 0.0
+    },
+    "1.5": {
+      "games": 170,
+      "total_flags": 135,
+      "mean_per_game": 0.79,
+      "median_per_game": 1.0,
+      "p10": 0.0,
+      "p90": 2.0,
+      "max": 4,
+      "share_with_zero": 0.447,
+      "share_with_ten_or_more": 0.0
+    },
+    "2.0": {
+      "games": 170,
+      "total_flags": 48,
+      "mean_per_game": 0.28,
+      "median_per_game": 0.0,
+      "p10": 0.0,
+      "p90": 1.0,
+      "max": 3,
+      "share_with_zero": 0.759,
+      "share_with_ten_or_more": 0.0
+    },
+    "2.5": {
+      "games": 170,
+      "total_flags": 19,
+      "mean_per_game": 0.11,
+      "median_per_game": 0.0,
+      "p10": 0.0,
+      "p90": 0.0,
+      "max": 3,
+      "share_with_zero": 0.912,
+      "share_with_ten_or_more": 0.0
+    },
+    "3.0": {
+      "games": 170,
+      "total_flags": 8,
+      "mean_per_game": 0.05,
+      "median_per_game": 0.0,
+      "p10": 0.0,
+      "p90": 0.0,
+      "max": 2,
+      "share_with_zero": 0.959,
+      "share_with_ten_or_more": 0.0
+    }
+  },
+  "note": "The run baseline was built from the 2023-24, 2024-25 and 2025-26 seasons; the win-probability model was tested on 2025-26, so the two overlap. These games are from the current season, which neither saw."
+}

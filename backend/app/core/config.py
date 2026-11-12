@@ -27,17 +27,25 @@ class Settings:
     # The boxscore is only needed for game status, so it is refreshed less often than play-by-play.
     boxscore_refresh_seconds: float = float(os.getenv("BOXSCORE_REFRESH_SECONDS", "10"))
     poll_backoff_max_seconds: float = float(os.getenv("POLL_BACKOFF_MAX_SECONDS", "60"))
-    # 1.5 was picked by checking the top run z-scores across all three
-    # curated replay fixtures: the two ordinary games top out at 0.45-0.58,
-    # while the "30-point comeback" game has three runs at 1.5-1.55 -- so
-    # 1.5 is the highest threshold that still lets the comeback game's heat
-    # checks fire without flagging anything in a normal game.
+    # Chosen from scripts/backtest_heat_checks.py: 170 finished 2026-27 regular
+    # season games (2026-10-20 to 2026-11-11) replayed through the engine at
+    # each threshold. Flags per game:
+    #     z >= 1.0   mean 1.76  median 2  p90 3   max 6   no flag in 15% of games
+    #     z >= 1.5   mean 0.79  median 1  p90 2   max 4   no flag in 45% of games
+    #     z >= 2.0   mean 0.28  median 0  p90 1   max 3   no flag in 76% of games
+    #     z >= 2.5   mean 0.11  no flag in 91%;   z >= 3.0   mean 0.05, none in 96%
+    # 1.0 is the lowest of those and the only one where a typical game gets
+    # a flag; the previous default (1.5) was tuned on three games and left
+    # almost half of games without one. Note what 1.0 means: a run that is
+    # about one standard deviation quicker than the baseline for its size and
+    # stage -- "quicker than usual", not "rare" (the copy in core/engine.py
+    # says so by tier). Raise it for fewer, more striking flags.
     #
-    # Caveat: that is a tuning on 3 games, sampled at replay cadence (~3s),
-    # not an evaluation. At live cadence (12s) the same games give different
-    # flags -- see test_sampling_rate_changes_what_gets_flagged. Don't change
-    # this without a proper evaluation over many games at live cadence.
-    anomaly_z_threshold: float = float(os.getenv("ANOMALY_Z_THRESHOLD", "1.5"))
+    # This tunes how OFTEN a game gets a flag. It does not show that flagged
+    # runs matter: the z-score is only as good as the baseline table, which
+    # overlaps the model's test season, and the sample is three weeks of
+    # early-season games.
+    anomaly_z_threshold: float = float(os.getenv("ANOMALY_Z_THRESHOLD", "1.0"))
     # Below this, a "run" is really just a pair of free throws (clock frozen,
     # near-zero elapsed time), not a basketball "run" in any meaningful
     # sense -- confirmed directly: without this floor, ~every 2-3 point

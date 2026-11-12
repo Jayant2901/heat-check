@@ -123,6 +123,8 @@ def test_model_info_reads_the_meta_files():
     assert body["n_test_rows"] == 665170
     assert body["n_runs"] == 33761
     assert "2025-26" in body["seasons"]
+    assert body["live_poll_interval_seconds"] > 0
+    assert "calibration" in body and "heat_check_backtest" in body  # None until the scripts have been run
 
 
 def test_unknown_stream_id_is_404_and_starts_nothing(demo):
