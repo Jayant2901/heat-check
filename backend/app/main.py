@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -109,7 +110,10 @@ class FrontendFiles(StaticFiles):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    # `commit` is the git commit this instance is running, when the host says
+    # (Render sets RENDER_GIT_COMMIT). The deploy workflow compares it with the
+    # commit it just tested to know when the new version is live.
+    return {"status": "ok", "commit": os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or None}
 
 
 if FRONTEND_DIR.exists():

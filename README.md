@@ -2,8 +2,9 @@
 
 **Live NBA win-probability tracking, with a statistical heat check on every scoring run.**
 
-> **Live site:** not deployed yet. I couldn't deploy from the environment I built this in, so there is no URL to put
-> here. [Deploying](#deploying) says what I'd do and what to check; put the link here once it's up.
+> **Live site:** https://heat-check.onrender.com (Render free tier: the first request after it has been idle can take up
+> up to a minute while the instance wakes up). I have not been able to reach it from my build environment, so I have
+> not tested it myself.
 
 ![A replayed game: win chance, the run meter, flagged runs and the heat-check list](docs/game.png)
 
@@ -113,7 +114,7 @@ Any game that finished in the last week (or earlier today) can be replayed from 
 | `GET /api/games/{game_id}/stream` | SSE stream of `wp_update` / `anomaly` / `game_end` / `degraded` / `heartbeat` events. A live game starts being tracked on its first connection; the id must be on today's scoreboard (404) unless the server still holds that game; at most `MAX_CONCURRENT_LIVE_GAMES` are followed (429) |
 | `GET /api/replays` | Available replay fixtures |
 | `POST /api/replays/{game_id}/start?speed=N` | Start a replay session, streamed via the same `/stream` endpoint. Rate-limited per client |
-| `GET /health` | Health check |
+| `GET /health` | Health check: `{"status": "ok", "commit": <git commit the host says is running, or null>}` |
 
 Every `wp_update` carries the run in progress (`run`, or null), `fidelity`, `source_ts` (when the feed says the play happened), `server_ts` (when this server sent it) and `feed_delay_sec` (the difference, only for plays seen live). Full interactive docs at `/docs` once running.
 
@@ -208,7 +209,8 @@ Before you rely on a deploy:
 
 1. Open `/api/nba-check` on it. If NBA.com is 403 from the host, the app uses ESPN automatically (`source_in_use` says which); if *both* are blocked, move to a host where one works (Fly.io, Railway or a small VPS are options to evaluate) or put a small relay in front, and note which here. I couldn't test either from a hosted environment.
 2. Free tiers that sleep when idle give the first visitor a cold start of up to a minute (the model and baseline load, and the weekly dashboard builds in the background), and some cut long-lived connections. The browser reconnects and resumes by `Last-Event-ID`, but hold one stream open for 10+ minutes on the real host and check.
-3. During a live game, open `/api/games/{id}/lag` and record the feed delay in [Latency](#latency).
+3. **The GitHub "Production" deployment** is recorded by the `deploy-status` job in `.github/workflows/test.yml`: after tests and the image build pass on `master`, it waits until `/health` on the live site reports that commit (Render sets `RENDER_GIT_COMMIT`), then marks a GitHub deployment successful with a link to the site (red if the site doesn't serve that commit within 20 minutes). If you use another host, change `SITE_URL` there.
+4. During a live game, open `/api/games/{id}/lag` and record the feed delay in [Latency](#latency).
 
 ## Re-running the evaluations
 

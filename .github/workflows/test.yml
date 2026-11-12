@@ -46,3 +46,66 @@ jobs:
       - name: Show logs on failure
         if: failure()
         run: docker logs hc
+
+  deploy-status:
+    # Records the Render deploy on GitHub (the green tick / "Production" box).
+    # After tests and the image build pass on master, wait for the live site to
+    # report THIS commit on /health, then mark a GitHub deployment successful.
+    # If the host doesn't report its commit, fall back to "healthy after a
+    # fixed wait" and say so in the status text.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: [pytest, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: deploy-status
+      cancel-in-progress: true   # a newer push supersedes an older wait
+    env:
+      SITE_URL: https://heat-check.onrender.com
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.sha;
+            const url = process.env.SITE_URL;
+            const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+            const { owner, repo } = context.repo;
+            const { data: deployment } = await github.rest.repos.createDeployment({
+              owner, repo, ref: sha, environment: 'Production', auto_merge: false,
+              required_contexts: [], production_environment: true,
+              description: 'Render deploy of ' + sha.slice(0, 7),
+            });
+            const setStatus = (state, description) =>
+              github.rest.repos.createDeploymentStatus({
+                owner, repo, deployment_id: deployment.id, state, description,
+                environment_url: url, log_url: `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              });
+            await setStatus('in_progress', 'Waiting for Render to serve this commit');
+            const started = Date.now();
+            const deadline = started + 20 * 60 * 1000;   // build + cold start on a free instance
+            const noCommitWaitMs = 8 * 60 * 1000;
+            let last = 'no response yet';
+            while (Date.now() < deadline) {
+              try {
+                const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(60000) });
+                const body = res.ok ? await res.json() : null;
+                last = res.ok ? JSON.stringify(body) : `HTTP ${res.status}`;
+                if (body && body.status === 'ok') {
+                  if (body.commit && sha.startsWith(body.commit.slice(0, 7))) {
+                    await setStatus('success', 'Live on Render at ' + sha.slice(0, 7));
+                    return;
+                  }
+                  if (!body.commit && Date.now() - started > noCommitWaitMs) {
+                    await setStatus('success', 'Healthy on Render (the host does not report its commit)');
+                    return;
+                  }
+                }
+              } catch (e) {
+                last = String(e);
+              }
+              await sleep(20000);
+            }
+            await setStatus('failure', 'Render did not serve this commit in 20 min. Last /health: ' + last);
+            core.setFailed('Render did not serve ' + sha + '. Last /health: ' + last);

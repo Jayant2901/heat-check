@@ -9,7 +9,15 @@ client = TestClient(app)
 def test_health():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json()["status"] == "ok"
+
+
+def test_health_reports_the_running_commit_when_the_host_says(monkeypatch):
+    monkeypatch.delenv("GIT_COMMIT", raising=False)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abc123")
+    assert client.get("/health").json() == {"status": "ok", "commit": "abc123"}
+    monkeypatch.delenv("RENDER_GIT_COMMIT")
+    assert client.get("/health").json() == {"status": "ok", "commit": None}
 
 
 class _FakeClient:
