@@ -55,3 +55,20 @@ def test_start_replay_rejects_once_the_concurrent_session_cap_is_hit():
     finally:
         for key in fake_keys:
             del poller_manager._tasks[key]
+
+
+def test_replay_starts_are_rate_limited_per_client(monkeypatch):
+    from app.api import replay as replay_module
+    from app.core.limits import RateLimiter
+
+    monkeypatch.setattr(replay_module, "start_limiter", RateLimiter(2, window=60))
+    started = []
+    for _ in range(3):
+        resp = client.post("/api/replays/0022200001/start", params={"speed": 1000})
+        started.append(resp)
+    assert [r.status_code for r in started] == [200, 200, 429]
+    assert "Too many replays" in started[2].json()["detail"]
+    for resp in started[:2]:
+        key = resp.json()["session_key"]
+        poller_manager.stop(key)
+        game_state_store.remove(key)

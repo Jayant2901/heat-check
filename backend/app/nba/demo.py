@@ -201,6 +201,9 @@ class _PregameSource:
     async def next_snapshot(self, game_id: str) -> GameSnapshot | None:
         return self._snapshot
 
+    async def next_snapshots(self, game_id: str) -> list[GameSnapshot] | None:
+        return [self._snapshot]
+
 
 class DemoNbaClient:
     mode = "demo"
@@ -322,7 +325,7 @@ class DemoNbaClient:
             "gameLeaders": {"homeLeaders": leader(home, home_score), "awayLeaders": leader(away, away_score)},
         }
 
-    def live_source(self, game_id: str) -> tuple[DataSource, float]:
+    def live_source(self, game_id: str, teams=None) -> tuple[DataSource, float]:
         if game_id in LIVE_GAMES:
             path = REPLAY_FIXTURES_DIR / f"{LIVE_GAMES[game_id]}.json"
             return ReplaySource(path, start_index=_live_start_index(game_id)), settings.poll_interval_seconds / REPLAY_SPEED

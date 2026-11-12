@@ -14,10 +14,11 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app.core.artifacts import get_baseline, get_model
 from app.core.config import REPLAY_FIXTURES_DIR, settings
+from app.core.limits import RateLimiter
 from app.datasources.replay_source import ReplaySource
 from app.nba.client import get_nba_client
 from app.nba.parse import parse_scoreboard
@@ -26,6 +27,8 @@ from app.nba.weekly import get_weekly_service
 from app.polling.poller import poller_manager
 
 router = APIRouter(prefix="/api/replays", tags=["replay"])
+
+start_limiter = RateLimiter(settings.replay_starts_per_minute, window=60.0)
 
 
 @router.get("")
@@ -70,7 +73,7 @@ async def _find_finished_game(game_id: str) -> dict | None:
 
 
 @router.post("/{game_id}/start")
-async def start_replay(game_id: str, speed: float = 10.0):
+async def start_replay(game_id: str, request: Request, speed: float = 10.0):
     """Start a replay session for a curated fixture or for any game that
     finished in the last week (built from its play-by-play)."""
     # Must be async: PollerManager.start() calls asyncio.create_task(), which
@@ -79,6 +82,9 @@ async def start_replay(game_id: str, speed: float = 10.0):
     # this failed with "no running event loop" before the fix.
     if speed <= 0:
         raise HTTPException(status_code=422, detail="speed must be positive")
+    client = request.client.host if request.client else "unknown"
+    if not start_limiter.allow(client):
+        raise HTTPException(status_code=429, detail="Too many replays started. Wait a minute and try again.")
 
     active_replays = [k for k in poller_manager.active_keys() if k.startswith("replay:")]
     if len(active_replays) >= settings.max_concurrent_replay_sessions:

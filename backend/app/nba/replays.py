@@ -65,6 +65,7 @@ def snapshots_from_playbyplay(pbp: dict, game_id: str, home: str, away: str) -> 
             "home_score": home_score,
             "away_score": away_score,
             "game_status": "live",
+            "exact": True,  # one snapshot per action, like live play-by-play
         }
         # Consecutive actions at the same moment (a foul, then a sub...) add
         # nothing for the engine; keep one snapshot per distinct state.

@@ -31,12 +31,15 @@ fallback used is returned alongside the z-score so callers know how
 approximate it is.
 """
 
+import logging
 import math
 from pathlib import Path
 
 import pandas as pd
 
 from app.core.game_state import RunState
+
+logger = logging.getLogger(__name__)
 
 TIME_BUCKET_SECONDS = 300
 MIN_SAMPLES = 20
@@ -85,13 +88,22 @@ def z_score_run(
     clock_seconds_remaining: float,
     period: int,
 ) -> tuple[float, str] | None:
+    """z-score of `run` as of `elapsed_seconds`. `period` and
+    `clock_seconds_remaining` must be where the run STARTED, because that is
+    how the baseline buckets runs. None (with the reason logged at debug
+    level) when a run cannot be scored."""
     duration = elapsed_seconds - run.start_elapsed_seconds
     if duration <= 0:
+        logger.debug("run of %d not scored: zero duration (all baskets at one clock reading)", run.points_scored)
         return None
     looked_up = _lookup(baseline, period, time_bucket(clock_seconds_remaining), run.points_scored)
     if looked_up is None:
+        logger.debug("run of %d not scored: no baseline rows for that size", run.points_scored)
         return None
     mean_log_duration, std_log_duration, bucket_label = looked_up
     if std_log_duration <= 0:
+        logger.debug(
+            "run of %d not scored: baseline bucket (%s) has zero spread, too few runs to judge", run.points_scored, bucket_label
+        )
         return None
     return (mean_log_duration - math.log(duration)) / std_log_duration, bucket_label

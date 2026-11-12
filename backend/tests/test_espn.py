@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 import app.nba.client as nba_client
+from app.nba import espn
 from app.nba.client import AutoNbaClient, HttpNbaClient, NbaUnavailable
 from app.nba.espn import (
     EspnNbaClient,
@@ -244,3 +245,65 @@ async def test_auto_client_prefers_nba_when_it_works():
     assert auto.source == "nba"
     await nba.aclose()
     await espn.aclose()
+
+
+# -- real captured ESPN responses (see fixtures/README.md) -------------------
+
+import json as _json  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_FIXTURES = _Path(__file__).parent / "fixtures"
+
+
+def _real(name):
+    return _json.loads((_FIXTURES / name).read_text())
+
+
+def test_real_final_scoreboard_translates():
+    from app.nba.parse import parse_scoreboard
+
+    board = parse_scoreboard(espn.translate_scoreboard(_real("espn_scoreboard_final.json"), "2026-11-11"))
+    games = {g["game_id"]: g for g in board["games"]}
+    assert set(games) == {"401909966", "401909967", "401909968"}
+    first = games["401909966"]
+    assert (first["away"]["tricode"], first["away"]["score"], first["home"]["tricode"], first["home"]["score"]) == (
+        "WAS", 101, "IND", 114,
+    )
+    assert first["status"] == "final"
+    assert games["401909967"]["home"]["tricode"] == "NYK"  # ESPN says "NY"
+
+
+def test_real_upcoming_scoreboard_is_scheduled_with_a_start_time():
+    from app.nba.parse import parse_scoreboard
+
+    board = parse_scoreboard(espn.translate_scoreboard(_real("espn_scoreboard_pre.json"), "2026-11-12"))
+    assert [g["status"] for g in board["games"]] == ["scheduled", "scheduled"]
+    assert all(g["start_time_utc"].endswith("Z") and g["home"]["score"] == 0 for g in board["games"])
+
+
+def test_real_summary_boxscore_translates():
+    from app.nba.parse import parse_boxscore_players
+
+    box = espn.translate_boxscore(_real("espn_summary_401909968.json"), "401909968")
+    game = box["game"]
+    assert game["gameStatus"] == 3
+    assert (game["homeTeam"]["teamTricode"], game["homeTeam"]["score"]) == ("TOR", 93)
+    assert (game["awayTeam"]["teamTricode"], game["awayTeam"]["score"]) == ("BOS", 98)
+    players = parse_boxscore_players(box)
+    assert 15 <= len(players) <= 30
+    assert sum(p["pts"] for p in players if p["team"] == "TOR") == 93  # box and score agree
+    assert sum(p["pts"] for p in players if p["team"] == "BOS") == 98
+
+
+def test_real_summary_play_by_play_translates():
+    pbp = espn.translate_playbyplay(_real("espn_summary_401909968.json"), "401909968")
+    actions = pbp["game"]["actions"]
+    assert len(actions) == 495
+    assert all(a["period"] >= 1 and a["clock"].startswith("PT") for a in actions)
+    assert actions[-1]["scoreHome"] == "93" and actions[-1]["scoreAway"] == "98"
+    assert actions[-1]["actionType"] == "End Game"
+    assert actions[3]["timeActual"].endswith("Z")  # wallclock, for feed delay
+    from app.nba.moments import scoring_events
+
+    events = scoring_events(pbp)
+    assert len(events) == 100 and (events[-1].home_score, events[-1].away_score) == (93, 98)

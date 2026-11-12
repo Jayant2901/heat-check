@@ -3,91 +3,99 @@
 A live game_id is auto-tracked on its first /stream connection (there is no
 separate "start tracking" call -- opening the stream is what starts the
 poller). The id must be one of today's games on the scoreboard (404
-otherwise), and at most MAX_CONCURRENT_LIVE_GAMES live pollers run at once
-(429 beyond that). A live poller stops itself after LIVE_IDLE_STOP_SECONDS
-with no viewers. A replay
-session's key only exists once POST /api/replays/{game_id}/start has
-created it (app/api/replay.py), so /stream never auto-starts one of those --
-it either finds the session or 404s.
+otherwise) unless the server still holds that game's state from earlier, and
+at most MAX_CONCURRENT_LIVE_GAMES live pollers run at once (429 beyond
+that). A live poller stops itself after LIVE_IDLE_STOP_SECONDS with no
+viewers. A replay session's key only exists once
+POST /api/replays/{game_id}/start has created it (app/api/replay.py), so
+/stream never auto-starts one of those -- it either finds the session or 404s.
+
+Backlog and live events never overlap or leave a gap. Every wp_update /
+anomaly / game_end gets a sequence number (its SSE `id`) and is appended to
+the game's event log (core/game_state.py). A connection subscribes to the
+live queue and copies the log in one step with no await between them, so
+the backlog is exactly the events up to `last_seq` and the queue holds
+exactly what comes after. A browser that reconnects sends Last-Event-ID
+and is sent only what it missed.
 """
 
 import asyncio
 import json
+import logging
+import time
 
 from fastapi import APIRouter, HTTPException, Request
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import EventSourceResponse, ServerSentEvent
+from starlette.background import BackgroundTask
 
 from app.core.artifacts import get_baseline, get_model
 from app.core.config import settings
 from app.core.events import to_sse_payload
 from app.core.game_state import game_state_store
+from app.core.limits import StreamLimiter
 from app.nba.client import get_nba_client
 from app.nba.parse import parse_scoreboard
-from app.polling.poller import poller_manager
-from app.sse.broadcaster import broadcaster
+from app.polling.poller import SourceUnavailable, poller_manager
+from app.sse.broadcaster import DROPPED, broadcaster
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/games", tags=["stream"])
 
+stream_limiter = StreamLimiter(settings.max_streams_per_ip, settings.max_total_streams)
 
-def _backlog_events(state):
-    # Deliberately a smaller field set than a live wp_update (no period/
-    # clock/wp_away) -- GameState.score_history only stores what's needed to
-    # redraw the worm chart's historical trail, not the extra display
-    # metadata a live front-edge tick carries. wp_away is trivially 1-wp_home
-    # if a client wants it. Confirmed by hand against a real replay stream
-    # that this asymmetry is intentional, not a missing-field bug. Team
-    # abbreviations ARE included, though -- they're constant for the whole
-    # game (read once off `state`, not stored per-point), and a late-joining
-    # viewer needs them immediately to render the matchup header.
-    for point in state.score_history:
-        yield {
-            "event": "wp_update",
-            "data": json.dumps(
-                {
-                    "t": point.elapsed_seconds,
-                    "home_team": state.home_team,
-                    "away_team": state.away_team,
-                    "home_score": point.home_score,
-                    "away_score": point.away_score,
-                    "wp_home": point.wp_home,
-                }
-            ),
-        }
-    for anomaly in state.anomalies:
-        yield {
-            "event": "anomaly",
-            "data": json.dumps(
-                {
-                    "t": anomaly.elapsed_seconds,
-                    "team": anomaly.team,
-                    "magnitude": anomaly.magnitude,
-                    "duration_sec": anomaly.duration_seconds,
-                    "z_score": anomaly.z_score,
-                    "bucket": anomaly.bucket,
-                    "message": anomaly.message,
-                }
-            ),
-        }
+# Not buffered, not cached, not compressed: every event must reach the browser
+# as it is written. (main.py also keeps gzip away from these routes.)
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
 
 
-def _already_in_backlog(event, last_backlog_t: float) -> bool:
-    """True if `event` falls at or before the last timestamp the backlog
-    snapshot already covered -- see the subscribe-before-backlog comment in
-    stream_game(). Events with no `t` (game_end, degraded) are never
-    considered already-delivered."""
-    event_t = getattr(event, "t", None)
-    return event_t is not None and event_t <= last_backlog_t
+def event_to_sse(event) -> dict:
+    payload = to_sse_payload(event)
+    kind = payload.pop("type")
+    message = {"event": kind, "data": json.dumps(payload)}
+    if payload.get("seq"):
+        message["id"] = str(payload["seq"])
+    return message
 
 
-async def _ensure_live_tracking(game_id: str) -> None:
+def backlog_for(state, last_event_id: str | None) -> tuple[list, int]:
+    """(events to replay, seq of the last one covered), copied atomically.
+
+    With a Last-Event-ID only later events are returned. An id from the
+    future (the server restarted and rebuilt the game) is ignored and the
+    whole log is sent; the page drops points it already has.
+    """
+    last_seq = state.seq
+    log = list(state.log)
+    try:
+        after = int(last_event_id) if last_event_id else 0
+    except ValueError:
+        after = 0
+    if 0 < after <= last_seq:
+        log = [e for e in log if e.seq > after]
+    return log, last_seq
+
+
+async def _ensure_live_tracking(game_id: str):
+    """Make sure a live game is being tracked (or is cached as finished) and
+    return its state."""
     if poller_manager.is_active(game_id):
-        return
+        return game_state_store.get(game_id)
+    cached = game_state_store.get(game_id)
+    if cached is not None and cached.status == "final":
+        return cached  # finished earlier; its full chart and heat checks are kept
+
     client = get_nba_client()
     try:
         board = parse_scoreboard(await client.scoreboard())
     except Exception:
         raise HTTPException(status_code=503, detail="Live NBA data is unreachable right now")
-    if game_id not in {g["game_id"] for g in board["games"]}:
+    game = next((g for g in board["games"] if g["game_id"] == game_id), None)
+    if game is None:
         raise HTTPException(status_code=404, detail="Not one of today's games")
 
     active_live = [k for k in poller_manager.active_keys() if not k.startswith("replay:")]
@@ -97,64 +105,87 @@ async def _ensure_live_tracking(game_id: str) -> None:
             detail=f"Already following {len(active_live)} live games (max {settings.max_concurrent_live_games}); "
             "try again shortly",
         )
-    source, interval = client.live_source(game_id)
-    poller_manager.start(
-        game_id,
-        source,
-        get_model(),
-        get_baseline(),
-        interval,
-        source_game_id=game_id,
-        idle_stop_seconds=settings.live_idle_stop_seconds,
-    )
+    source, interval = client.live_source(game_id, (game["home"]["tricode"], game["away"]["tricode"]))
+    try:
+        await poller_manager.start_primed(
+            game_id,
+            source,
+            get_model(),
+            get_baseline(),
+            interval,
+            source_game_id=game_id,
+            idle_stop_seconds=settings.live_idle_stop_seconds,
+        )
+    except SourceUnavailable:
+        raise HTTPException(status_code=503, detail="Couldn't read this game's live feed right now. Try again shortly.")
+    return game_state_store.get(game_id)
+
+
+def _client_id(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 @router.get("/{game_id}/stream")
 async def stream_game(game_id: str, request: Request):
     is_replay = game_id.startswith("replay:")
-    state = game_state_store.get(game_id)
-
-    if state is None:
-        if is_replay:
+    if is_replay:
+        state = game_state_store.get(game_id)
+        if state is None:
             raise HTTPException(
                 status_code=404,
                 detail="No such replay session -- start one via POST /api/replays/{game_id}/start",
             )
-        await _ensure_live_tracking(game_id)
-        state = game_state_store.get_or_create(game_id)
+    else:
+        state = await _ensure_live_tracking(game_id)
+        if state is None:  # the poller ended and was evicted in the same moment
+            raise HTTPException(status_code=503, detail="Couldn't read this game right now. Try again shortly.")
+
+    client = _client_id(request)
+    if not stream_limiter.acquire(client):
+        raise HTTPException(status_code=429, detail="Too many open streams. Close another tab and try again.")
+    last_event_id = request.headers.get("last-event-id")
+    released = False
+
+    def release() -> None:
+        # Called when the generator ends and again as the response's
+        # background task (in case the client left before the generator
+        # ever started); only the first call counts.
+        nonlocal released
+        if not released:
+            released = True
+            stream_limiter.release(client)
 
     async def event_generator():
-        # Subscribe BEFORE reading the backlog, not after -- the poller task
-        # runs on its own asyncio task and can publish between "read the
-        # backlog" and "start listening for new events" on any await point,
-        # which used to mean a tick published in that window was silently
-        # dropped for this connection (never in the backlog snapshot, never
-        # seen by a queue we hadn't subscribed to yet). Subscribing first
-        # means that same tick now arrives twice instead -- once already
-        # captured by the backlog snapshot below, once off the queue -- so
-        # the queue-drain loop skips anything at or before the last
-        # timestamp the backlog already covered. Re-delivering a duplicate
-        # is a much safer failure mode than silently losing an event.
-        queue = broadcaster.subscribe(game_id)
         try:
-            last_backlog_t = state.score_history[-1].elapsed_seconds if state.score_history else -1
+            # Subscribe and copy the log with no await between, so nothing is
+            # in both and nothing falls between (see the module docstring).
+            queue = broadcaster.subscribe(game_id)
+            try:
+                backlog, last_seq = backlog_for(state, last_event_id)
+                yield ServerSentEvent(data=None, retry=settings.sse_retry_ms)
+                for event in backlog:
+                    yield event_to_sse(event)
+                if state.status == "final" and any(e.type == "game_end" for e in state.log):
+                    return  # a finished game: game_end has been delivered (or the client already has it)
 
-            for event in _backlog_events(state):
-                yield event
-
-            while True:
-                if await request.is_disconnected():
-                    break
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=settings.sse_heartbeat_seconds)
-                except asyncio.TimeoutError:
-                    yield {"event": "heartbeat", "data": ""}
-                    continue
-                if _already_in_backlog(event, last_backlog_t):
-                    continue
-                payload = to_sse_payload(event)
-                yield {"event": payload.pop("type"), "data": json.dumps(payload)}
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=settings.sse_heartbeat_seconds)
+                    except asyncio.TimeoutError:
+                        yield {"event": "heartbeat", "data": json.dumps({"ts": time.time()})}
+                        continue
+                    if event is DROPPED:
+                        break  # too slow to keep up; the browser reconnects and catches up by id
+                    if event.seq and event.seq <= last_seq:
+                        continue
+                    yield event_to_sse(event)
+                    if event.type == "game_end":
+                        break
+            finally:
+                broadcaster.unsubscribe(game_id, queue)
         finally:
-            broadcaster.unsubscribe(game_id, queue)
+            release()
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(event_generator(), headers=SSE_HEADERS, background=BackgroundTask(release))

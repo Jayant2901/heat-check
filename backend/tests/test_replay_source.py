@@ -10,7 +10,7 @@ from app.datasources.replay_source import ReplaySource
 
 class FakeModel:
     def predict_proba(self, X):
-        return [[0.5, 0.5]]
+        return [[0.5, 0.5]] * len(X)
 
 
 def _write_fixture(tmp_path, snapshots):

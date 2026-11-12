@@ -15,19 +15,20 @@ live poller work unchanged:
 Game ids are ESPN event ids (e.g. "401705123"), never NBA ids, so
 AutoNbaClient (client.py) can tell from an id which source it belongs to.
 
-Every field is read defensively: this mapping was written from ESPN's
-documented-by-usage format and could not be checked against a live
-response where it was written. /api/nba-check reports whether it works on
-a deploy.
+Every field is read defensively. The scoreboard, summary (boxscore and plays)
+translations were checked against real responses captured on 2026-11-12
+(backend/tests/fixtures/espn_*.json); a game IN PROGRESS has not been seen
+yet. /api/nba-check reports whether each source works from a deploy.
 """
 
 import asyncio
 import logging
 import re
+import time
 from datetime import timedelta
 
 from app.core.config import settings
-from app.nba.client import HttpNbaClient
+from app.nba.client import FeedResult, HttpNbaClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,9 @@ SUMMARY_URL = f"{ESPN_BASE}/summary?event={{event_id}}"
 SCOREBOARD_TTL_SECONDS = 10.0
 SCHEDULE_TTL_SECONDS = 30 * 60.0
 SUMMARY_TTL_SECONDS = 5.0
+# ESPN's summary is the whole game (boxscore, plays, odds...) in one ~450 KB
+# response, so a live ESPN game is polled less often than an NBA.com one.
+ESPN_MIN_POLL_SECONDS = 5.0
 
 # ESPN's abbreviations that differ from NBA.com's tricodes.
 TRICODES = {
@@ -344,9 +348,14 @@ def translate_playbyplay(summary: dict, event_id: str) -> dict:
         seconds = clock_from_text(clock_text)
         actions.append(
             {
+                # ESPN's sequenceNumber increases through the game, so it
+                # doubles as NBA.com's actionNumber for "what's new since".
+                "actionNumber": _int(play.get("sequenceNumber"), default=-1),
                 "period": period,
                 "clock": iso_clock(seconds) if seconds is not None else "",
+                "timeActual": play.get("wallclock") or "",
                 "teamTricode": codes.get(str((play.get("team") or {}).get("id")), ""),
+                "actionType": str((play.get("type") or {}).get("text") or ""),
                 "description": play.get("text") or "",
                 "scoreHome": "" if play.get("homeScore") is None else str(play.get("homeScore")),
                 "scoreAway": "" if play.get("awayScore") is None else str(play.get("awayScore")),
@@ -373,6 +382,7 @@ class EspnNbaClient(HttpNbaClient):
 
             today = eastern_today
         self._today = today
+        self._latest_summary: dict[str, tuple[float, dict]] = {}
 
     async def scoreboard(self) -> dict:
         day = self._today()
@@ -403,6 +413,26 @@ class EspnNbaClient(HttpNbaClient):
 
     async def playbyplay(self, game_id: str) -> dict:
         return translate_playbyplay(await self._summary(game_id), game_id)
+
+    async def playbyplay_feed(self, game_id: str) -> FeedResult:
+        feed = await self.fetch_feed(SUMMARY_URL.format(event_id=game_id))
+        self._latest_summary[game_id] = (time.monotonic(), feed.data)
+        while len(self._latest_summary) > 4:  # whole-game summaries are large; keep the newest few
+            self._latest_summary.pop(next(iter(self._latest_summary)))
+        return FeedResult(translate_playbyplay(feed.data, game_id), feed.not_modified, feed.fetch_ms, feed.from_cache)
+
+    async def boxscore_feed(self, game_id: str) -> FeedResult:
+        # The play-by-play poll just fetched this same summary; reuse it.
+        latest = self._latest_summary.get(game_id)
+        if latest is not None and time.monotonic() - latest[0] < SUMMARY_TTL_SECONDS:
+            return FeedResult(translate_boxscore(latest[1], game_id), True, 0.0, True)
+        feed = await self.fetch_feed(SUMMARY_URL.format(event_id=game_id))
+        self._latest_summary[game_id] = (time.monotonic(), feed.data)
+        return FeedResult(translate_boxscore(feed.data, game_id), feed.not_modified, feed.fetch_ms, feed.from_cache)
+
+    def live_source(self, game_id: str, teams=None):
+        source, interval = super().live_source(game_id, teams)
+        return source, max(interval, ESPN_MIN_POLL_SECONDS)
 
     async def probe(self) -> list[dict]:
         day = self._today()

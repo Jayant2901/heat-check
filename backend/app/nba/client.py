@@ -11,7 +11,9 @@ stats.nba.com is never used (it blocks most cloud hosts).
 
 import asyncio
 import logging
+import re
 import time
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
@@ -27,12 +29,13 @@ SCHEDULE_URL = f"{CDN_BASE}/staticData/scheduleLeagueV2.json"
 BOXSCORE_URL = f"{CDN_BASE}/liveData/boxscore/boxscore_{{game_id}}.json"
 PLAYBYPLAY_URL = f"{CDN_BASE}/liveData/playbyplay/playbyplay_{{game_id}}.json"
 
-# The same header set nba_api's live endpoints send (nba_api/live/nba/library/
-# http.py), which is known to be accepted by cdn.nba.com from servers. It
-# deliberately has no Origin/Referer: a cross-site Origin from a server is
-# the kind of request the CDN's bot protection can reject. Accept-Encoding
-# omits "br" because httpx can only decode brotli if it is installed.
-HEADERS = {
+# The header set nba_api's live endpoints send (nba_api/live/nba/library/
+# http.py). Accept-Encoding omits "br" because httpx can only decode brotli if
+# it is installed. On top of that, NBA_BROWSER_HEADERS (default on) adds a
+# Referer/Origin of https://www.nba.com, which clears some 403s from cloud
+# hosts. That addition is UNVERIFIED: it could not be tested from the
+# environment this was written in (see README, "What is verified").
+BASE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
@@ -43,6 +46,26 @@ HEADERS = {
     "Cache-Control": "max-age=0",
     "Connection": "keep-alive",
 }
+BROWSER_HEADERS = {
+    "Referer": "https://www.nba.com/",
+    "Origin": "https://www.nba.com",
+}
+
+
+def request_headers() -> dict[str, str]:
+    headers = dict(BASE_HEADERS)
+    if settings.nba_browser_headers:
+        headers.update(BROWSER_HEADERS)
+    return headers
+
+
+# Back-compat name for tests and callers that read the default header set.
+HEADERS = request_headers()
+
+# A live poll skips the request only if the CDN said the copy is still fresh
+# for this long at most -- polls are ~3 s apart, so this never makes a live
+# poll wait; it only stops a burst of callers refetching the same URL.
+LIVE_MAX_FRESH_SECONDS = 1.5
 
 SCOREBOARD_TTL_SECONDS = 10.0
 SCHEDULE_TTL_SECONDS = 30 * 60.0
@@ -81,6 +104,44 @@ def describe_error(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+@dataclass(frozen=True)
+class FeedResult:
+    """One conditional fetch of a live feed.
+
+    `not_modified` is True when the CDN answered 304 (or said the copy is
+    still fresh): `data` is then the copy fetched earlier. `fetch_ms` is the
+    time the request took (0 when nothing was requested).
+    """
+
+    data: dict
+    not_modified: bool = False
+    fetch_ms: float = 0.0
+    from_cache: bool = False
+
+
+@dataclass
+class _Validator:
+    data: dict
+    etag: str | None
+    last_modified: str | None
+    fresh_until: float
+
+
+_MAX_AGE = re.compile(r"(?:^|[,\s])max-age=(\d+)", re.IGNORECASE)  # s-maxage is for shared caches, not us
+
+
+def fresh_seconds(cache_control: str | None) -> float:
+    """How long the response's Cache-Control says it stays fresh, capped at
+    LIVE_MAX_FRESH_SECONDS. 0 when it says no-cache/no-store or says nothing."""
+    text = (cache_control or "").lower()
+    if not text or "no-cache" in text or "no-store" in text:
+        return 0.0
+    match = _MAX_AGE.search(text)
+    if not match:
+        return 0.0
+    return min(float(match.group(1)), LIVE_MAX_FRESH_SECONDS)
+
+
 class NbaClient(Protocol):
     mode: str
 
@@ -92,8 +153,9 @@ class NbaClient(Protocol):
 
     async def playbyplay(self, game_id: str) -> dict: ...
 
-    def live_source(self, game_id: str) -> tuple[DataSource, float]:
-        """The DataSource to poll for this game, and the poll interval."""
+    def live_source(self, game_id: str, teams: tuple[str, str] | None = None) -> tuple[DataSource, float]:
+        """The DataSource to poll for this game, and the poll interval.
+        `teams` is (home, away) tricodes from the scoreboard, if known."""
         ...
 
 
@@ -107,11 +169,12 @@ class HttpNbaClient:
         self._http: httpx.AsyncClient | None = None
         self._cache: dict[str, tuple[float, dict]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._validators: dict[str, _Validator] = {}
 
     def _client(self) -> httpx.AsyncClient:
         if self._http is None or self._http.is_closed:
             self._http = httpx.AsyncClient(
-                headers=HEADERS,
+                headers=request_headers(),
                 timeout=self._timeout,
                 transport=self._transport,
                 follow_redirects=True,
@@ -143,6 +206,46 @@ class HttpNbaClient:
         reason = describe_error(last_error) if last_error else "unknown error"
         logger.warning("Fetch failed: %s (%s)", url, reason)
         raise NbaUnavailable(f"Could not fetch {url}: {last_error}", reason) from last_error
+
+    async def fetch_feed(self, url: str) -> FeedResult:
+        """Conditional GET for a live feed, with no internal retries (the
+        poller's next tick is the retry, and a sleep here would add to the
+        lag). Sends If-None-Match / If-Modified-Since when the last response
+        had validators, so an unchanged feed costs a 304 with no body."""
+        started = time.perf_counter()
+        validator = self._validators.get(url)
+        if validator is not None and time.monotonic() < validator.fresh_until:
+            return FeedResult(validator.data, not_modified=True, from_cache=True)
+        conditional = {}
+        if validator is not None:
+            if validator.etag:
+                conditional["If-None-Match"] = validator.etag
+            elif validator.last_modified:
+                conditional["If-Modified-Since"] = validator.last_modified
+        try:
+            response = await self._client().get(url, headers=conditional)
+            if response.status_code == 304 and validator is not None:
+                validator.fresh_until = time.monotonic() + fresh_seconds(response.headers.get("cache-control"))
+                return FeedResult(validator.data, True, (time.perf_counter() - started) * 1000)
+            response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            reason = describe_error(exc)
+            logger.warning("Feed fetch failed: %s (%s)", url, reason)
+            raise NbaUnavailable(f"Could not fetch {url}: {exc}", reason) from exc
+        self._validators[url] = _Validator(
+            data=data,
+            etag=response.headers.get("etag"),
+            last_modified=response.headers.get("last-modified"),
+            fresh_until=time.monotonic() + fresh_seconds(response.headers.get("cache-control")),
+        )
+        return FeedResult(data, False, (time.perf_counter() - started) * 1000)
+
+    async def playbyplay_feed(self, game_id: str) -> FeedResult:
+        return await self.fetch_feed(PLAYBYPLAY_URL.format(game_id=game_id))
+
+    async def boxscore_feed(self, game_id: str) -> FeedResult:
+        return await self.fetch_feed(BOXSCORE_URL.format(game_id=game_id))
 
     async def _cached(self, url: str, ttl: float) -> dict:
         lock = self._locks.setdefault(url, asyncio.Lock())
@@ -203,6 +306,9 @@ class HttpNbaClient:
             url = BOXSCORE_URL.format(game_id=games[0].get("gameId"))
             box_result, _ = await self._probe_one("nba boxscore", url)
             results.append(box_result)
+            pbp_url = PLAYBYPLAY_URL.format(game_id=games[0].get("gameId"))
+            pbp_result, _ = await self._probe_one("nba playbyplay", pbp_url)
+            results.append(pbp_result)
         return results
 
     async def scoreboard(self) -> dict:
@@ -217,10 +323,12 @@ class HttpNbaClient:
     async def playbyplay(self, game_id: str) -> dict:
         return await self._fetch(PLAYBYPLAY_URL.format(game_id=game_id))
 
-    def live_source(self, game_id: str) -> tuple[DataSource, float]:
-        from app.datasources.nba_live import NbaLiveDataSource
+    def live_source(self, game_id: str, teams: tuple[str, str] | None = None) -> tuple[DataSource, float]:
+        from app.datasources.nba_live import PlayByPlayLiveSource
 
-        return NbaLiveDataSource(self.boxscore), settings.poll_interval_seconds
+        home, away = teams or ("", "")
+        source = PlayByPlayLiveSource(self.playbyplay_feed, self.boxscore_feed, home=home, away=away)
+        return source, settings.live_poll_interval_seconds
 
 
 class AutoNbaClient:
@@ -280,8 +388,8 @@ class AutoNbaClient:
     async def playbyplay(self, game_id: str) -> dict:
         return await self._for_id(game_id).playbyplay(game_id)
 
-    def live_source(self, game_id: str) -> tuple[DataSource, float]:
-        return self._for_id(game_id).live_source(game_id)
+    def live_source(self, game_id: str, teams: tuple[str, str] | None = None) -> tuple[DataSource, float]:
+        return self._for_id(game_id).live_source(game_id, teams)
 
     async def probe(self) -> list[dict]:
         return [*await self.primary.probe(), *await self.fallback.probe()]

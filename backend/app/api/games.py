@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
+from app.core.engine import run_payload
 from app.core.game_state import game_state_store
 from app.nba.client import describe_error, get_nba_client
 from app.nba.parse import parse_scoreboard
@@ -36,6 +37,10 @@ async def get_scoreboard():
         raise HTTPException(status_code=503, detail=unreachable(exc))
     for game in board["games"]:
         game["tracked"] = poller_manager.is_active(game["game_id"])
+        # Heat checks found so far, for games the server has followed (a live
+        # game with viewers, or one it kept after it ended). None = not followed.
+        state = game_state_store.get(game["game_id"])
+        game["heat_checks"] = None if state is None else len(state.anomalies)
     return {"mode": client.mode, "source": getattr(client, "source", None), **board}
 
 
@@ -69,9 +74,53 @@ async def get_live_games():
 
 @router.get("/games/{game_id}/state")
 def get_game_state(game_id: str):
-    """Non-streaming snapshot of a tracked game -- used for initial page load
-    before the SSE connection (backend/app/api/stream.py) takes over."""
+    """Non-streaming snapshot of a tracked (or recently finished) game."""
     state = game_state_store.get(game_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Game not tracked")
-    return state
+    t = state.score_history[-1].elapsed_seconds if state.score_history else 0.0
+    exact = state.fidelity == "play_by_play"
+    return {
+        "game_id": state.game_id,
+        "status": state.status,
+        "period": state.period,
+        "clock_seconds_remaining": state.clock_seconds_remaining,
+        "home_team": state.home_team,
+        "away_team": state.away_team,
+        "home_score": state.home_score,
+        "away_score": state.away_score,
+        "fidelity": state.fidelity,
+        "wp_home": state.score_history[-1].wp_home if state.score_history else None,
+        "points": len(state.score_history),
+        "run": run_payload(state.current_run, t, exact),
+        "anomalies": [
+            {
+                "t": a.elapsed_seconds,
+                "team": a.team,
+                "magnitude": a.magnitude,
+                "duration_sec": a.duration_seconds,
+                "z_score": a.z_score,
+                "bucket": a.bucket,
+                "message": a.message,
+            }
+            for a in state.anomalies
+        ],
+        "tracked": poller_manager.is_active(game_id),
+    }
+
+
+@router.get("/games/{game_id}/lag")
+def get_game_lag(game_id: str):
+    """How far behind the real game this server is, measured on the last polls.
+
+    feed_age is how old the newest play in the NBA's feed was when we fetched
+    it (the floor: we cannot be faster than the feed). recent_feed_delays are
+    server_ts - source_ts for the latest plays pushed, i.e. feed age plus the
+    time to the next poll. poll_ms is one whole poll, publish_ms the time to
+    run the engine and hand events to subscribers."""
+    stats = poller_manager.stats(game_id)
+    if stats is None:
+        raise HTTPException(status_code=404, detail="Game not tracked")
+    delays = stats.get("recent_feed_delays") or []
+    stats["median_feed_delay_sec"] = sorted(delays)[len(delays) // 2] if delays else None
+    return stats
