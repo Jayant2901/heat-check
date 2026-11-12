@@ -57,3 +57,20 @@ class RateLimiter:
             for key in [k for k, v in self._hits.items() if not v or now - v[-1] > self.window]:
                 del self._hits[key]
         return True
+
+
+def client_id(request, trust_proxy: bool) -> str:
+    """Who to count a request against.
+
+    Behind a platform proxy every connection comes from the proxy, so the real
+    visitor is in X-Forwarded-For. A client can put anything at the START of
+    that header; the proxy appends the address it actually saw at the END, so
+    that last entry is the one to trust, and only when TRUST_PROXY is on (the
+    header means nothing, and is spoofable, when nothing sets it).
+    """
+    if trust_proxy:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        last = forwarded.split(",")[-1].strip()
+        if last:
+            return last
+    return request.client.host if request.client else "unknown"

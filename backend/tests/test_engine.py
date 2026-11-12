@@ -263,6 +263,7 @@ def test_every_wp_update_carries_the_run_state(baseline_df):
     assert wp[1].run == {**wp[1].run, "team": "home", "points": 2, "duration_sec": 0.0}
     assert wp[3].run["points"] == 8 and wp[3].run["duration_sec"] == 20.0
     assert wp[3].run["threshold"] == settings.anomaly_z_threshold
+    assert wp[3].run["min_points"] == settings.anomaly_min_magnitude
     assert wp[4].run["team"] == "away" and wp[4].run["points"] == 2
 
 

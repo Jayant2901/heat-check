@@ -62,6 +62,9 @@ class Settings:
     # Abuse limits (per client address / whole process).
     max_streams_per_ip: int = int(os.getenv("MAX_STREAMS_PER_IP", "30"))
     max_total_streams: int = int(os.getenv("MAX_TOTAL_STREAMS", "500"))
+    # Count clients by the last X-Forwarded-For entry (the address the platform
+    # proxy saw) instead of the socket peer. Turn on only behind such a proxy.
+    trust_proxy: bool = _flag("TRUST_PROXY", "0")
     replay_starts_per_minute: int = int(os.getenv("REPLAY_STARTS_PER_MINUTE", "10"))
     # Comma-separated origins allowed to call the API cross-origin. Empty
     # (the default) means same-origin only: the bundled frontend needs no CORS.

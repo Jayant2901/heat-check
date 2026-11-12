@@ -8,11 +8,10 @@ could quietly disagree with it.
 
 Each closed run is bucketed by (period, time_bucket) at the run's START --
 not its end -- since "how fast do runs like this begin" is anchored to when
-they started. The live engine checks a run's z-score using the *current*
-tick's period/clock while the run is still open, which for a genuinely fast
-(anomalous) run is only seconds away from its start bucket in practice; this
-is a documented approximation, not a precision mismatch worth chasing given
-the project's live data is boxscore-level, not play-by-play, to begin with.
+they started. The live engine does the same: a run remembers where it started
+(RunState.start_period / start_clock) and is z-scored against that bucket, with
+its duration measured first basket to latest basket, exactly as here (the live
+engine reads play-by-play, so it sees the same scoring plays this script does).
 
 Durations are log-transformed before averaging -- see app/anomaly/baseline.py's
 module docstring for why raw-duration z-scoring doesn't work for this

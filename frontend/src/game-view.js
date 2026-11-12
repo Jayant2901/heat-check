@@ -74,7 +74,7 @@ function layout(mode) {
           </div>
         </div>
         <ol class="heat-list" id="heat-list" aria-live="polite"></ol>
-        <p class="muted" id="heat-empty">No unusually quick runs yet. A heat check is a run of 6 or more unanswered points that came faster than usual for that point in a game.</p>
+        <p class="muted" id="heat-empty">No unusually quick runs yet. A heat check is a run of unanswered points that came faster than usual for that point in a game.</p>
       </section>
     </div>
     <div class="toast-region" id="toast-region" aria-live="polite"></div>`;
@@ -276,6 +276,8 @@ export function renderGame(root, { mode, id, speed, onMode }) {
   let lastPlayAt = null; // when a play last arrived live
   let fidelity = "play_by_play";
   let run = null;
+  let lastMinPoints = 6; // until the server says (run.min_points)
+  let resumed = false; // true once the stream has reconnected at least once
   let selectedKey = null;
   let headerFrame = null;
   let soundOn = readSound();
@@ -320,9 +322,11 @@ export function renderGame(root, { mode, id, speed, onMode }) {
   // ---- run meter ---------------------------------------------------------
 
   function renderRun() {
+    const minPoints = run?.min_points ?? lastMinPoints;
+    lastMinPoints = minPoints;
     let state = "idle";
     let text = "No active run";
-    let sub = "A run is unanswered points by one team. It can be flagged once it reaches 6 points.";
+    let sub = `A run is unanswered points by one team. It can be flagged once it reaches ${minPoints} points.`;
     let fill = 0;
     if (view.status === "final") {
       state = "final";
@@ -331,7 +335,7 @@ export function renderGame(root, { mode, id, speed, onMode }) {
     } else if (run && run.points >= MIN_RUN_DISPLAY) {
       const code = run.team === "home" ? view.home : view.away;
       const z = run.z_score;
-      const threshold = run.threshold || 1.5;
+      const threshold = run.threshold;
       text = `${esc(code || run.team)} on a ${run.points}-0 run, ${shortSeconds(run.duration_sec)}`;
       fill = z == null ? 0 : Math.max(0, Math.min(1, z / threshold));
       if (run.flagged) {
@@ -341,7 +345,7 @@ export function renderGame(root, { mode, id, speed, onMode }) {
         state = "building";
         sub =
           z == null
-            ? "Too small to score yet: runs are scored from 6 points."
+            ? `Too small to score yet: runs are scored from ${minPoints} points.`
             : `Heat check at ${threshold}σ · this run is at ${z.toFixed(1)}σ`;
       }
       if (run.since_last_score_sec >= 20) sub += ` · last basket ${shortSeconds(run.since_last_score_sec)} ago`;
@@ -537,7 +541,9 @@ export function renderGame(root, { mode, id, speed, onMode }) {
     ensureChart();
     chart?.addAnomaly(a);
     const added = addHeatRow(a);
-    if (added && !a.backlog) showToast(a);
+    // History replayed on first load is drawn quietly; a heat check that landed
+    // while the connection was down is new to this viewer and worth a toast.
+    if (added && (!a.backlog || resumed)) showToast(a);
   }
 
   function onEnd(e) {
@@ -557,6 +563,7 @@ export function renderGame(root, { mode, id, speed, onMode }) {
   async function onError({ reconnecting }) {
     if (!alive || view.status === "final") return;
     if (reconnecting) {
+      resumed = true;
       conn = "reconnecting";
       renderStatus();
       showNotice("Reconnecting…");

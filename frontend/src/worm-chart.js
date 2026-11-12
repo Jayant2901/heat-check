@@ -75,8 +75,8 @@ export function createWormChart(container, { homeLabel, awayLabel, onHover = () 
     .append("svg")
     .attr("class", "wp-chart")
     .attr("viewBox", `0 0 ${WIDTH} ${HEIGHT}`)
-    .attr("role", "img")
-    .attr("aria-label", `${homeLabel} win chance over the game`);
+    .attr("role", "group")
+    .attr("aria-label", `${homeLabel} win chance over the game; flagged runs are buttons on the 50% line`);
 
   const x = d3.scaleLinear().range([MARGIN.left, WIDTH - MARGIN.right]);
   const y = d3.scaleLinear().domain([0, 1]).range([innerBottom, MARGIN.top]);

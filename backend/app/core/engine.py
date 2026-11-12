@@ -140,6 +140,7 @@ def run_payload(run: RunState | None, t: float, exact: bool) -> dict | None:
         "since_last_score_sec": round(max(0.0, t - run.last_scored_elapsed), 1),
         "z_score": None if run.z_score is None else round(run.z_score, 2),
         "threshold": settings.anomaly_z_threshold,
+        "min_points": settings.anomaly_min_magnitude,
         "flagged": run.anomaly_flagged,
         "started_t": run.start_elapsed_seconds,
     }

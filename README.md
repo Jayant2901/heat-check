@@ -71,11 +71,11 @@ Now the live source reads the play-by-play and the engine sees one snapshot per 
 - **The result doesn't depend on polling cadence.** The same game fed one play at a time, a dozen per poll, or all at once flags the same runs at the same times with the same z-scores (`test_play_by_play_flags_do_not_depend_on_polling_cadence`).
 - **A run is scored the way the baseline was built**: bucketed by the clock where it *started* and timed from its first to its latest basket. (Before, it was bucketed and timed by whichever poll noticed it.)
 
-If play-by-play can't be had (the CDN refuses it, or the feed is empty for a game that has scored) the source falls back to boxscore polls and says so: every event carries `fidelity: "boxscore_ticks"` and the game page shows an "Approximate mode" badge. That path keeps the old weakness (`test_boxscore_ticks_depend_on_sampling`).
+If play-by-play can't be had the source falls back to boxscore polls and says so: at once on a 401/403 (a refusal won't clear in seconds, and a game's first viewer would otherwise get a 503), after 3 failures in a row of other kinds, after 10 for a 404 (the CDN can lag tip-off), or when the feed is empty for a game that has scored. It stays in that mode for the life of that poller, because the state is already built from ticks. Every event carries `fidelity: "boxscore_ticks"` and the game page shows an "Approximate mode" badge. That path keeps the old weakness (`test_boxscore_ticks_depend_on_sampling`).
 
 ### Late viewers get the whole game
 
-The first poll of a game reads the whole play-by-play so far and runs every play through the engine *before the first viewer's stream starts*, so even the first visitor sees the full chart and every heat check that already happened. Every event has a sequence number (the SSE `id`), and a game's event log is what a late viewer's backlog is built from, so it matches exactly what a viewer who was there from the start received. A reconnecting browser sends `Last-Event-ID` and gets only what it missed. When a poller stops (game over, or nobody watching), the game's state stays in a bounded cache (20 games or 24 h, whichever comes first), so revisiting a finished game still shows everything.
+The first poll of a game reads the whole play-by-play so far and runs every play through the engine *before the first viewer's stream starts*, so even the first visitor sees the full chart and every heat check that already happened. Every event has a sequence number (the SSE `id`), and a game's event log is what a late viewer's backlog is built from, so it holds the same `wp_update`, `anomaly` and `game_end` events a viewer who was there from the start received (a transient `degraded` notice is not logged). A reconnecting browser sends `Last-Event-ID` and gets only what it missed. When a poller stops (game over, or nobody watching), the game's state stays in a bounded cache (20 games or 24 h, whichever comes first), so revisiting a finished game still shows everything.
 
 ### Dashboard
 
@@ -140,6 +140,7 @@ Every environment variable, with its default. None are required.
 | `SSE_RETRY_MS` | `3000` | Reconnect delay hinted to browsers |
 | `MAX_STREAMS_PER_IP` / `MAX_TOTAL_STREAMS` | `30` / `500` | Concurrent stream limits (429) |
 | `REPLAY_STARTS_PER_MINUTE` / `MAX_CONCURRENT_REPLAY_SESSIONS` | `10` / `10` | Replay limits (429) |
+| `TRUST_PROXY` | `0` | Count clients by the last `X-Forwarded-For` entry. Set to `1` only behind a proxy that appends it (`render.yaml` does) |
 | `CORS_ALLOW_ORIGINS` | *(empty)* | Comma-separated origins allowed to call the API cross-origin. Empty means same-origin only; the bundled frontend needs no CORS |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `text` | `DEBUG` also logs why each candidate run was not flagged; `json` for one JSON object per line |
 | `PREWARM_WEEK` | `1` | Build the weekly dashboard when the server starts (`0` turns it off) |
@@ -157,10 +158,10 @@ The page can't be faster than the NBA's own feed, so I don't claim "real-time" o
 
 ## Status
 
-- **Done and tested**: the historical pipeline and trained artifacts (3,941 games; HistGradientBoosting, 74.7% accurate across all game states of the held-out 2025-26 season, log loss 0.477 vs 0.496 for logistic regression; the 96.3% "buzzer-convergence" figure measured the last play of each game, so it is a sanity check, not an accuracy number); the run baseline (33,761 real 6+ point runs, log-transformed durations); the engine, run detector and z-scoring; play-by-play-driven live and replay paths; backfill and the bounded state cache; fixed-cadence polling with conditional requests; the SSE transport; the dashboard and game page; the threshold backtest and calibration check. 166 tests pass.
+- **Done and tested**: the historical pipeline and trained artifacts (3,941 games; HistGradientBoosting, 74.7% accurate across all game states of the held-out 2025-26 season, log loss 0.477 vs 0.496 for logistic regression; the 96.3% "buzzer-convergence" figure measured the last play of each game, so it is a sanity check, not an accuracy number); the run baseline (33,761 real 6+ point runs, log-transformed durations); the engine, run detector and z-scoring; play-by-play-driven live and replay paths; backfill and the bounded state cache; fixed-cadence polling with conditional requests; the SSE transport; the dashboard and game page; the threshold backtest and calibration check. 176 tests pass.
 - **Verified against real data**: ESPN's scoreboard, summary (boxscore and plays), pre-game summary and a full weekly dashboard build (49 real games) from this environment, through the app's own client; the live source and engine on a real finished game's 495 plays, including backfill-equals-streaming. Real captures are in `backend/tests/fixtures/`.
 - **Not verified**: anything against `cdn.nba.com` (it answers 403 from my build environment, with or without the browser-like `Referer`/`Origin` headers added to the client; those headers are unconfirmed); ESPN or NBA.com while a game is *in progress*; the Docker image (no Docker daemon here; CI builds it, and a clean venv from `requirements-runtime.txt` boots the app in the image's layout); a deployed instance, including holding an SSE stream open for 10+ minutes behind a host's proxy; the pending `test_real_saved_boxscore_parses` (needs a real `cdn.nba.com` boxscore saved to `backend/tests/fixtures/boxscore_real.json`).
-- **Open**: a pre-game team-strength prior (every game still starts near 50%); recap-card export; a `LICENSE` (the owner's choice).
+- **Open**: a pre-game team-strength prior (every game still starts near 50%); recap-card export.
 
 ### Loading speed
 
@@ -193,7 +194,7 @@ The weekly dashboard is built in the background as soon as the server starts (`P
 - **SSE backlog/live hand-off** (`app/api/stream.py`): every event has a sequence number; a connection subscribes to the live queue and copies the game's log with no `await` between, so the backlog is exactly the events up to a point and the queue holds exactly what follows; `Last-Event-ID` resumes. (Earlier, a timestamp comparison could drop an event that shared the last backlog timestamp.)
 - **Duplicates on reconnect**: the chart ignores older and same-moment points, the feed ignores a heat check it already has, and the server sends only what `Last-Event-ID` hasn't covered.
 - **Bounded memory**: finished and idle games are kept in a cache bounded by count and age (active games are never evicted); replay sessions are removed when they end; subscriber queues are bounded and a client that stops reading is dropped (and catches up on reconnect).
-- **Abuse limits**: per-client and total concurrent streams, per-client replay starts per minute, a cap on concurrent replay sessions and live games. Behind a proxy these need the real client address, which the Docker `CMD` gets via `--proxy-headers`.
+- **Abuse limits**: per-client and total concurrent streams, per-client replay starts per minute, a cap on concurrent replay sessions and live games. Clients are counted by socket address, or, with `TRUST_PROXY=1` behind a platform proxy, by the *last* `X-Forwarded-For` entry (the one the proxy appended; the first is client-controlled and spoofable). The limit is checked before any work is done for a connection. Replay `speed` is bounded (0.25-1000) because a replay never idles out.
 - **CORS** is off unless `CORS_ALLOW_ORIGINS` is set; the bundled frontend is same-origin.
 - **Errors**: unhandled errors return `{"detail": "Internal server error"}`; tracebacks go to the log only. Logging has levels and an optional JSON format.
 - **Degraded**: a `degraded` event after three failed polls is shown on the game page ("The data source isn't responding right now. Still trying…").
@@ -223,3 +224,7 @@ python scripts/load_test_sse.py --base http://127.0.0.1:8000 --clients 100 --sec
 - The in-memory single-process `GameStateStore`/`Broadcaster`, and the pandas-filter-per-lookup in `app/anomaly/baseline.py`, are deliberate v1 scope choices with a stated migration path (Redis-backed store, etc.).
 - NBA.com's CDN has no documented rate limit or SLA. Each followed game costs one play-by-play request every ~3 s (a 304 when nothing changed) plus a boxscore every ~10 s, one poller per game however many people watch.
 - ESPN's summary is the whole game in one ~450 KB response, so a live ESPN game is polled at most every 5 s.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

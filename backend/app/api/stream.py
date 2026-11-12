@@ -32,7 +32,7 @@ from app.core.artifacts import get_baseline, get_model
 from app.core.config import settings
 from app.core.events import to_sse_payload
 from app.core.game_state import game_state_store
-from app.core.limits import StreamLimiter
+from app.core.limits import StreamLimiter, client_id
 from app.nba.client import get_nba_client
 from app.nba.parse import parse_scoreboard
 from app.polling.poller import SourceUnavailable, poller_manager
@@ -125,29 +125,14 @@ async def _ensure_live_tracking(game_id: str):
     return game_state_store.get(game_id)
 
 
-def _client_id(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
-
-
 @router.get("/{game_id}/stream")
 async def stream_game(game_id: str, request: Request):
     is_replay = game_id.startswith("replay:")
-    if is_replay:
-        state = game_state_store.get(game_id)
-        if state is None:
-            raise HTTPException(
-                status_code=404,
-                detail="No such replay session -- start one via POST /api/replays/{game_id}/start",
-            )
-    else:
-        state = await _ensure_live_tracking(game_id)
-        if state is None:  # the poller ended and was evicted in the same moment
-            raise HTTPException(status_code=503, detail="Couldn't read this game right now. Try again shortly.")
-
-    client = _client_id(request)
+    client = client_id(request, settings.trust_proxy)
+    # Count the connection before doing any work for it (scoreboard lookups,
+    # starting a poller): a client over its limit must not be able to cause that.
     if not stream_limiter.acquire(client):
         raise HTTPException(status_code=429, detail="Too many open streams. Close another tab and try again.")
-    last_event_id = request.headers.get("last-event-id")
     released = False
 
     def release() -> None:
@@ -158,6 +143,23 @@ async def stream_game(game_id: str, request: Request):
         if not released:
             released = True
             stream_limiter.release(client)
+
+    try:
+        if is_replay:
+            state = game_state_store.get(game_id)
+            if state is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No such replay session -- start one via POST /api/replays/{game_id}/start",
+                )
+        else:
+            state = await _ensure_live_tracking(game_id)
+            if state is None:  # the poller ended and was evicted in the same moment
+                raise HTTPException(status_code=503, detail="Couldn't read this game right now. Try again shortly.")
+    except BaseException:
+        release()
+        raise
+    last_event_id = request.headers.get("last-event-id")
 
     async def event_generator():
         try:

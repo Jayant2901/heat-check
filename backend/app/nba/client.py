@@ -66,6 +66,7 @@ HEADERS = request_headers()
 # for this long at most -- polls are ~3 s apart, so this never makes a live
 # poll wait; it only stops a burst of callers refetching the same URL.
 LIVE_MAX_FRESH_SECONDS = 1.5
+MAX_VALIDATORS = 16  # live feeds kept for conditional requests (a few per followed game)
 
 SCOREBOARD_TTL_SECONDS = 10.0
 SCHEDULE_TTL_SECONDS = 30 * 60.0
@@ -233,6 +234,8 @@ class HttpNbaClient:
             reason = describe_error(exc)
             logger.warning("Feed fetch failed: %s (%s)", url, reason)
             raise NbaUnavailable(f"Could not fetch {url}: {exc}", reason) from exc
+        while len(self._validators) >= MAX_VALIDATORS:  # whole-game ESPN summaries are ~450 KB each
+            self._validators.pop(next(iter(self._validators)))
         self._validators[url] = _Validator(
             data=data,
             etag=response.headers.get("etag"),

@@ -348,8 +348,9 @@ def translate_playbyplay(summary: dict, event_id: str) -> dict:
         seconds = clock_from_text(clock_text)
         actions.append(
             {
-                # ESPN's sequenceNumber increases through the game, so it
-                # doubles as NBA.com's actionNumber for "what's new since".
+                # Kept for reference only: ESPN's sequenceNumber does NOT
+                # increase along the plays list, so the live source tracks
+                # plays by list position (see datasources/nba_live._actions).
                 "actionNumber": _int(play.get("sequenceNumber"), default=-1),
                 "period": period,
                 "clock": iso_clock(seconds) if seconds is not None else "",

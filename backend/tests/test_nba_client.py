@@ -194,3 +194,12 @@ async def test_http_client_builds_a_play_by_play_live_source():
     source, interval = HttpNbaClient().live_source("0022600001", ("BOS", "NYK"))
     assert isinstance(source, PlayByPlayLiveSource) and source.backfills
     assert interval == nba_client.settings.live_poll_interval_seconds
+
+
+@pytest.mark.asyncio
+async def test_remembered_feed_validators_are_bounded():
+    client = _client(lambda request: httpx.Response(200, json={"n": 1}, headers={"etag": '"x"'}))
+    for n in range(nba_client.MAX_VALIDATORS + 10):
+        await client.fetch_feed(f"https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{n}.json")
+    assert len(client._validators) <= nba_client.MAX_VALIDATORS
+    await client.aclose()

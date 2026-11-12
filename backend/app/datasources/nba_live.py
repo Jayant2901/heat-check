@@ -12,8 +12,8 @@ returns the whole play-by-play so far, which is how a late viewer gets the
 full chart and every past heat check. The boxscore is read only every few
 seconds, for game status.
 
-If play-by-play cannot be had (the CDN refuses it, or the feed is empty for a
-game that has scored) the source falls back to boxscore polls and says so:
+If play-by-play cannot be had (the CDN refuses it, repeatedly fails, or the feed
+is empty for a game that has scored) the source falls back to boxscore polls and says so:
 its snapshots are then exact=False and the events carry
 fidelity="boxscore_ticks". It does not switch back mid-game, because the
 state is already built from ticks.
@@ -33,6 +33,9 @@ from app.nba.parse import STATUS_BY_CODE, parse_clock_seconds
 logger = logging.getLogger(__name__)
 
 PBP_FAILURES_BEFORE_TICKS = 3
+# A 404 for a live game's play-by-play usually means the CDN has not written the
+# file yet (it can lag tip-off), so it gets a longer grace before falling back.
+PBP_404_FAILURES_BEFORE_TICKS = 10
 # The boxscore can say "final" a few seconds before the last plays reach the
 # play-by-play file. Wait this many polls for the plays' score to match.
 FINAL_WAIT_POLLS = 10
@@ -177,8 +180,8 @@ class PlayByPlayLiveSource:
             return await self._tick_poll(game_id)
         try:
             feed = _as_feed(await self._fetch_pbp(game_id))
-        except Exception:
-            return await self._pbp_failed(game_id)
+        except Exception as exc:
+            return await self._pbp_failed(game_id, exc)
         actions = _actions(feed.data)
 
         # Status and team codes come from the boxscore: always on the first
@@ -217,15 +220,24 @@ class PlayByPlayLiveSource:
         )
         return snapshots
 
-    async def _pbp_failed(self, game_id: str) -> list[GameSnapshot] | None:
+    async def _pbp_failed(self, game_id: str, exc: Exception | None = None) -> list[GameSnapshot] | None:
         """The play-by-play request failed. Before tip-off that is normal (the
-        CDN has no file yet); during a game, repeated failures mean fall back."""
+        CDN has no file yet); during a game, repeated failures mean fall back.
+
+        A refusal (HTTP 401/403) will not clear in a few seconds, so if the
+        game is live and the boxscore is readable the fallback engages at once:
+        otherwise a host the CDN blocks would get a 503 on a game's first
+        connection, because a fresh source starts with no failure count.
+        """
         box_ok = await self._refresh_box(game_id, force=True)
         if box_ok and self._status == "scheduled":
             return self._pregame(game_id)
+        reason = getattr(exc, "reason", "") or ""
         self._pbp_failures += 1
-        logger.warning("Play-by-play fetch failed for %s (%d in a row)", game_id, self._pbp_failures, exc_info=True)
-        if box_ok and self._pbp_failures >= PBP_FAILURES_BEFORE_TICKS and await self._engage_ticks(game_id):
+        logger.warning("Play-by-play fetch failed for %s (%d in a row)", game_id, self._pbp_failures, exc_info=exc)
+        refused = reason in ("HTTP 401", "HTTP 403")
+        limit = PBP_404_FAILURES_BEFORE_TICKS if reason == "HTTP 404" else PBP_FAILURES_BEFORE_TICKS
+        if box_ok and (refused or self._pbp_failures >= limit) and await self._engage_ticks(game_id):
             return await self._tick_poll(game_id)
         return None
 
@@ -352,25 +364,3 @@ class PlayByPlayLiveSource:
         if quiet >= QUIET_SECONDS or self._period_ended:
             return max(base, settings.live_idle_poll_seconds)
         return base
-
-
-class NbaLiveDataSource:
-    """Boxscore-only source (lower fidelity): one boxscore fetch per poll.
-    Errors return None; the poller (app/polling/poller.py) owns backoff and
-    the "degraded" event."""
-
-    def __init__(self, fetch_boxscore: Callable[[str], Awaitable[dict]]) -> None:
-        self._fetch_boxscore = fetch_boxscore
-        self.fidelity = FIDELITY_BOXSCORE_TICKS
-
-    async def next_snapshot(self, game_id: str) -> GameSnapshot | None:
-        try:
-            raw = await self._fetch_boxscore(game_id)
-            return snapshot_from_boxscore(raw["game"])
-        except Exception:
-            logger.warning("Live boxscore fetch failed for game_id=%s", game_id, exc_info=True)
-            return None
-
-    async def next_snapshots(self, game_id: str) -> list[GameSnapshot] | None:
-        snapshot = await self.next_snapshot(game_id)
-        return None if snapshot is None else [snapshot]

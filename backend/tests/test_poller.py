@@ -354,3 +354,50 @@ async def test_stats_report_the_polls():
         assert stats["last_publish_ms"] is not None
     finally:
         game_state_store.remove("STAT1")
+
+
+class _OneThenOk:
+    def __init__(self):
+        self.calls = 0
+
+    async def next_snapshots(self, game_id):
+        self.calls += 1
+        status = "final" if self.calls >= 3 else "live"
+        return [GameSnapshot(game_id, 2, 300.0 - self.calls, "HOM", "AWY", 50, 48, status)]
+
+
+@pytest.mark.asyncio
+async def test_an_engine_error_does_not_kill_the_poller(monkeypatch):
+    import app.polling.poller as poller_module
+
+    real = poller_module.process_snapshots
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("bad data")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(poller_module, "process_snapshots", flaky)
+    clock = FakeClock()
+    manager = PollerManager(clock=clock.now, sleep=clock.sleep, wall=clock.now)
+    try:
+        manager.start("ENGERR", _OneThenOk(), FakeModel(), EMPTY_BASELINE, 3.0, "ENGERR")
+        await _until_inactive(manager, "ENGERR")
+        state = game_state_store.get("ENGERR")
+        assert state.status == "final"  # it carried on after the error
+        assert manager.stats("ENGERR")["failures"] == 1
+    finally:
+        game_state_store.remove("ENGERR")
+
+
+@pytest.mark.asyncio
+async def test_start_primed_leaves_no_state_behind_if_the_engine_raises(monkeypatch):
+    import app.polling.poller as poller_module
+
+    monkeypatch.setattr(poller_module, "process_snapshots", lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
+    manager = PollerManager()
+    with pytest.raises(KeyboardInterrupt):
+        await manager.start_primed("PRIME5", _OneThenOk(), FakeModel(), EMPTY_BASELINE, 3.0, "PRIME5")
+    assert game_state_store.get("PRIME5") is None and not manager.is_active("PRIME5")

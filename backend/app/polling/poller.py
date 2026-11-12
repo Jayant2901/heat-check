@@ -142,7 +142,18 @@ class _Session:
         # Feed delay is only meaningful for plays seen as they happen, not for
         # history replayed on first connect or for a replay of a past game.
         live = info is not None and not info.backfill
-        events = process_snapshots(self.state, batch, self.model, self.baseline, live=live, now=self.m.wall())
+        try:
+            events = process_snapshots(self.state, batch, self.model, self.baseline, live=live, now=self.m.wall())
+        except Exception:
+            # A bug or bad data must not silently kill the poller (viewers would
+            # get heartbeats forever): log it, count it as a failed poll and
+            # carry on with the next one.
+            logger.error("Engine error for %s", self.key, exc_info=True)
+            self.failures += 1
+            self.stats.failures += 1
+            if self.failures == CONSECUTIVE_FAILURES_BEFORE_DEGRADED:
+                broadcaster.publish(self.key, DegradedEvent(type="degraded", reason="data source unavailable"))
+            return "failed"
         for event in events:
             broadcaster.publish(self.key, event)
         self.stats.last_publish_ms = round((self.m.clock() - polled) * 1000, 2)
@@ -221,9 +232,15 @@ class PollerManager:
                 return
             session = _Session(self, key, source, model, baseline, interval_seconds, source_game_id, idle_stop_seconds)
             self._remember(session)
-            outcome = await session.poll_once()
+            try:
+                outcome = await session.poll_once()
+            except BaseException:
+                game_state_store.remove(key)  # don't leave an active-looking, never-retained state behind
+                self._sessions.pop(key, None)
+                raise
             if outcome == "failed":
                 self._sessions.pop(key, None)
+                self._locks.pop(key, None)
                 game_state_store.remove(key)  # nothing was learned; don't keep an empty shell
                 raise SourceUnavailable(f"Could not read game {source_game_id}")
             self._tasks[key] = asyncio.create_task(self._run(session, skip_first=True, finished=outcome == "done"))

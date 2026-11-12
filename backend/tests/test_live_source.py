@@ -197,19 +197,42 @@ async def test_before_tipoff_a_missing_feed_is_not_a_failure():
 
 
 @pytest.mark.asyncio
-async def test_falls_back_to_boxscore_ticks_when_play_by_play_stays_unavailable():
-    blocked = NbaUnavailable("403", "HTTP 403")
-    feeds = Feeds([blocked], [box(2, 10, 8)])
+async def test_a_refused_feed_falls_back_to_ticks_on_the_very_first_poll():
+    """A 403 will not clear in a few seconds, and a game's first connection
+    builds a fresh source with no failure count, so waiting for three failures
+    would mean a 503 for every first viewer on a host the CDN blocks."""
+    feeds = Feeds([NbaUnavailable("403", "HTTP 403")], [box(2, 10, 8)])
+    src = source(feeds)
+    snaps = await src.next_snapshots("g")
+    assert src.fidelity == FIDELITY_BOXSCORE_TICKS
+    assert len(snaps) == 1 and snaps[0].exact is False and (snaps[0].home_score, snaps[0].away_score) == (10, 8)
+    assert src.last_poll.fidelity == FIDELITY_BOXSCORE_TICKS
+    feeds.boxes = [box(2, 12, 8)]
+    assert (await src.next_snapshots("g"))[0].home_score == 12
+
+
+@pytest.mark.asyncio
+async def test_other_failures_fall_back_after_three_in_a_row():
+    feeds = Feeds([NbaUnavailable("503", "HTTP 503")], [box(2, 10, 8)])
     src = source(feeds)
     assert await src.next_snapshots("g") is None
     assert await src.next_snapshots("g") is None
-    third = await src.next_snapshots("g")  # third failure: engage the fallback
-    assert src.fidelity == FIDELITY_BOXSCORE_TICKS
-    assert len(third) == 1 and third[0].exact is False and (third[0].home_score, third[0].away_score) == (10, 8)
-    assert src.last_poll.fidelity == FIDELITY_BOXSCORE_TICKS
-    feeds.boxes = [box(2, 12, 8)]
-    fourth = await src.next_snapshots("g")
-    assert fourth[0].home_score == 12 and fourth[0].exact is False
+    assert src.fidelity == FIDELITY_PLAY_BY_PLAY
+    third = await src.next_snapshots("g")
+    assert src.fidelity == FIDELITY_BOXSCORE_TICKS and third[0].exact is False
+
+
+@pytest.mark.asyncio
+async def test_a_404_on_a_live_game_gets_a_longer_grace_than_other_failures():
+    """The CDN can lag tip-off by a while; falling back (permanently, for the
+    life of the poller) on three 404s would degrade a game for no reason."""
+    feeds = Feeds([NbaUnavailable("404", "HTTP 404")], [box(2, 10, 8)])
+    src = source(feeds)
+    for _ in range(9):
+        assert await src.next_snapshots("g") is None
+    assert src.fidelity == FIDELITY_PLAY_BY_PLAY
+    tenth = await src.next_snapshots("g")
+    assert src.fidelity == FIDELITY_BOXSCORE_TICKS and tenth[0].exact is False
 
 
 @pytest.mark.asyncio

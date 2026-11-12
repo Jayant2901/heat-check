@@ -72,3 +72,10 @@ def test_replay_starts_are_rate_limited_per_client(monkeypatch):
         key = resp.json()["session_key"]
         poller_manager.stop(key)
         game_state_store.remove(key)
+
+
+def test_replay_speed_is_bounded():
+    for speed in (0, -1, 1e-9, 0.1, 5000):
+        resp = client.post("/api/replays/0022200001/start", params={"speed": speed})
+        assert resp.status_code == 422, speed
+        assert "between" in resp.json()["detail"]

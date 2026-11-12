@@ -30,7 +30,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
   CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT','8000'), timeout=4)"
 
 # Shell form so $PORT (set by most PaaS hosts, e.g. Render) is honored, with
-# 8000 as a sane local-Docker default when it's unset. --proxy-headers makes
-# request.client the real visitor behind the platform's proxy, which the
-# per-client stream and replay limits rely on.
-CMD uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'
+# 8000 as a sane local-Docker default when it's unset. The per-client limits
+# count visitors by the proxy's X-Forwarded-For entry only when TRUST_PROXY=1
+# (set it on a host that puts a proxy in front, e.g. Render; see render.yaml).
+CMD uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port ${PORT:-8000}

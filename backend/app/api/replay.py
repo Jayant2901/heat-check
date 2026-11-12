@@ -3,7 +3,7 @@ or for any game that finished in the last week).
 
 A replay session is driven by the identical poller/engine code path as a
 live game (app/polling/poller.py) -- it just gets a ReplaySource instead of
-an NbaLiveDataSource, and a namespaced session key so multiple viewers can
+a PlayByPlayLiveSource, and a namespaced session key so multiple viewers can
 each watch their own playthrough without colliding. Once started, a session
 streams through the exact same /api/games/{key}/stream endpoint as a live
 game (app/api/stream.py) -- no separate replay-only streaming path exists.
@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.core.artifacts import get_baseline, get_model
 from app.core.config import REPLAY_FIXTURES_DIR, settings
-from app.core.limits import RateLimiter
+from app.core.limits import RateLimiter, client_id
 from app.datasources.replay_source import ReplaySource
 from app.nba.client import get_nba_client
 from app.nba.parse import parse_scoreboard
@@ -27,6 +27,10 @@ from app.nba.weekly import get_weekly_service
 from app.polling.poller import poller_manager
 
 router = APIRouter(prefix="/api/replays", tags=["replay"])
+
+# A replay never idles out, so an absurdly slow one would hold a session slot
+# for good; absurdly fast is pointless.
+MIN_SPEED, MAX_SPEED = 0.25, 1000.0
 
 start_limiter = RateLimiter(settings.replay_starts_per_minute, window=60.0)
 
@@ -80,9 +84,9 @@ async def start_replay(game_id: str, request: Request, speed: float = 10.0):
     # needs a running event loop. A sync `def` here gets offloaded to
     # FastAPI's worker thread pool, which has none -- confirmed directly,
     # this failed with "no running event loop" before the fix.
-    if speed <= 0:
-        raise HTTPException(status_code=422, detail="speed must be positive")
-    client = request.client.host if request.client else "unknown"
+    if not (MIN_SPEED <= speed <= MAX_SPEED):
+        raise HTTPException(status_code=422, detail=f"speed must be between {MIN_SPEED} and {MAX_SPEED}")
+    client = client_id(request, settings.trust_proxy)
     if not start_limiter.allow(client):
         raise HTTPException(status_code=429, detail="Too many replays started. Wait a minute and try again.")
 

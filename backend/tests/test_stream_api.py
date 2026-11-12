@@ -305,3 +305,33 @@ def test_event_to_sse_carries_the_sequence_number_as_the_event_id():
     message = stream_module.event_to_sse(GameEndEvent(type="game_end", final_home_score=1, final_away_score=0, winner="HOM", seq=7))
     assert message["event"] == "game_end" and message["id"] == "7"
     assert json.loads(message["data"])["winner"] == "HOM"
+
+
+@pytest.mark.asyncio
+async def test_a_client_over_its_limit_causes_no_work(api, monkeypatch):
+    """The limit is checked before the scoreboard is read or a poller started."""
+    touched = []
+
+    class Spy:
+        mode = "live"
+
+        async def scoreboard(self):
+            touched.append("scoreboard")
+            raise AssertionError("must not be reached")
+
+    monkeypatch.setattr(stream_module, "get_nba_client", lambda: Spy())
+    monkeypatch.setattr(stream_module.stream_limiter, "per_client", 0)
+    async with api as client:
+        response = await client.get("/api/games/S-NEW/stream")
+    assert response.status_code == 429 and touched == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_request_releases_its_stream_slot(api, monkeypatch):
+    limiter = stream_module.stream_limiter
+    before = limiter.total
+    monkeypatch.setattr(stream_module, "get_nba_client", lambda: _Client(None))
+    async with api as client:
+        assert (await client.get("/api/games/S-OTHER/stream")).status_code == 404  # not on the scoreboard
+        assert (await client.get("/api/games/replay:nope:1/stream")).status_code == 404
+    assert limiter.total == before
